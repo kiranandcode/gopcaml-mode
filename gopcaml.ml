@@ -1,7 +1,12 @@
 open Core
 open Ecaml
 
+let to_special_string value = Lexing.from_string ~with_positions:true value
+            |> ExtLib.dump
+            
+
 let version = 0.1
+
 
 let print_region start_pos end_pos : unit =
   let print_region_internal () = 
@@ -10,6 +15,7 @@ let print_region start_pos end_pos : unit =
       ~end_:end_pos
       () in
     Text.to_utf8_bytes text
+    |> to_special_string
     |>  message
   in
   ignore (print_region_internal ())
