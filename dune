@@ -1,5 +1,5 @@
 (executable
  (name gopcaml)
  (libraries core ecaml)
- (preprocess (pps ppx_jane))
+ (preprocess (pps ppx_let ppx_here))
  (modes (native shared_object)))
