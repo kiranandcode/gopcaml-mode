@@ -1,8 +1,10 @@
 open Core
 open Ecaml
 
+
 let to_special_string value = Lexing.from_string ~with_positions:true value
-            |> ExtLib.dump
+                              |> Parse.implementation
+                              |> ExtLib.dump
             
 
 let version = 0.1
