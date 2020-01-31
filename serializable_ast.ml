@@ -29,15 +29,44 @@ type constant =
     | Pconst_string of string * string option
     | Pconst_float of string * char option [@@deriving sexp]
 
-type rec_flag = Nonrecursive | Recursive [@@deriving sexp]
-type closed_flag = Closed | Open [@@deriving sexp]
-type arg_label = Nolabel | Labelled of string | Optional of string [@@deriving sexp]
-type direction_flag = Upto | Downto  [@@deriving sexp]
-type variance = Covariant | Contravariant | Invariant [@@deriving sexp]
-type private_flag = Private | Public [@@deriving sexp]
-type mutable_flag = Immutable | Mutable [@@deriving sexp]
-type override_flag = Override | Fresh [@@deriving sexp]
-type virtual_flag = Virtual | Concrete [@@deriving sexp]
+type rec_flag =
+    Nonrecursive
+  | Recursive
+[@@deriving sexp]
+type closed_flag =
+    Closed
+  | Open
+[@@deriving sexp]
+type arg_label =
+    Nolabel
+  | Labelled of string
+  | Optional of string
+[@@deriving sexp]
+type direction_flag =
+    Upto
+  | Downto
+[@@deriving sexp]
+type variance =
+    Covariant
+  | Contravariant
+  | Invariant
+[@@deriving sexp]
+type private_flag =
+    Private
+  | Public
+[@@deriving sexp]
+type mutable_flag =
+    Immutable
+  | Mutable
+[@@deriving sexp]
+type override_flag =
+    Override
+  | Fresh
+[@@deriving sexp]
+type virtual_flag =
+    Virtual
+  | Concrete
+[@@deriving sexp]
 
 type value_binding = {
   pvb_pat : pattern;
@@ -256,8 +285,7 @@ and with_constraint =
 and type_declaration = {
   ptype_name : string Location.loc;
   ptype_params : (core_type * variance) list;
-  ptype_cstrs :
-    (core_type * core_type * Location.t) list;
+  ptype_cstrs : (core_type * core_type * Location.t) list;
   ptype_kind : type_kind;
   ptype_private : private_flag;
   ptype_manifest : core_type option;
