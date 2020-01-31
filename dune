@@ -1,5 +1,5 @@
 (executable
  (name gopcaml)
- (libraries core  ecaml ocaml-compiler-libs.common extlib)
- (preprocess (pps ppx_let ppx_here))
+ (libraries core  ecaml ocaml-compiler-libs.common ocaml-migrate-parsetree extlib)
+ (preprocess (pps ppx_let ppx_here ppx_sexp_conv))
  (modes (native shared_object)))
