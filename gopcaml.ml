@@ -6,15 +6,14 @@ let gopcaml_version = "0.0"
 
 module Variables = struct
 
-
   let state_var = Buffer_local.defvar
       ("gopcaml-state" |> Symbol.intern)
       [%here]
       ~docstring:{|
     Holds gopcaml-mode state.
     |}
-      ~type_: (Gopcaml_state.State.ty)
-      ~default_value:(Gopcaml_state.State.default)
+      ~type_: (Value.Type.option Gopcaml_state.State.ty)
+      ~default_value:(None )
       ()
 end
 module Customizable = struct
@@ -37,7 +36,7 @@ module Customizable = struct
     |}
       ~type_: (Value.Type.list Value.Type.string)
       ~customization_type:(Customization.Type.Repeat Customization.Type.String)
-      ~standard_value:["ml"]
+      ~standard_value:["mli"]
       ()
 
   let implementation_extensions_var = Customization.defcustom
@@ -50,7 +49,7 @@ module Customizable = struct
     |}
       ~type_: (Value.Type.list Value.Type.string)
       ~customization_type:(Customization.Type.Repeat Customization.Type.String)
-      ~standard_value:["mli"]
+      ~standard_value:["ml"]
       ()
 end
 
@@ -71,17 +70,41 @@ let gopcaml_mode =
     ("gopcaml-mode" |> Symbol.intern)
     [%here]
     ~docstring:"OCaml major mode for structural syntax-aware \
-                editing. Can be thought of as tuareg on steriods!"
+                editing. OCaml editing on steriods!"
     ~mode_line:"GopCaml"
     ~parent:Major_mode.Tuareg.major_mode
     ~initialize:((Returns Value.Type.unit),
                  fun () ->
-                   ignore (Gopcaml_state.setup_gopcaml_state
+                   message "Building initial state";
+                   let _ =  (Gopcaml_state.setup_gopcaml_state
                              ~state_var:Variables.state_var
                              ~interface_extension_var:Customizable.interface_extensions_var
                              ~implementation_extension_var:Customizable.implementation_extensions_var
-                          )
-                )
+                          ) in
+                   defun
+                       ("gopcaml-set-file-type" |> Symbol.intern)
+                       [%here]
+                       ~docstring:{|
+                       Configure gopcaml to treat current buffer as FILE-TYPE
+                       |}
+                       (Returns Value.Type.unit)
+                       (let open Defun.Let_syntax in
+                        let%map_open file_type = required "file-type" Gopcaml_state.State.Filetype.ty in
+                        Gopcaml_state.set_gopcaml_file_type
+                          ~state_var:Variables.state_var
+                          file_type
+                       );
+                   defun
+                       ("gopcaml-get-file-type" |> Symbol.intern)
+                       [%here]
+                       ~docstring:{|
+                       Retrieve gopcaml's stored file type for the current buffer.
+                       |}
+                       (Returns Value.Type.string)
+                       (let open Defun.Let_syntax in
+                        let%map_open getter = return (Gopcaml_state.get_gopcaml_file_type
+                            ~state_var:Variables.state_var) in
+                        (getter ())))
     ()
 
 (* Finally, provide the gopcaml symbol  *)
