@@ -30,10 +30,42 @@ module State = struct
     type t = s
   end
 
+  (** region of the buffer  *)
+  type region = {
+    start_mark: Marker.t;
+    end_mark: Marker.t ;
+    (** denotes the start and end of the region  *)
+    logical_start: Line_and_column.t;
+    logical_end: Line_and_column.t 
+  }
+
   (** holds the parse tree for the current file  *)
+  type 'a ast_tree =
+    (** the variant simply defines the type of ast.
+        the value is a list of the top-level items, where each item is
+        reported as: region * ast in that region
+
+        when a change occurs, we:
+        - find region containing change,
+        - reparse region, update element 
+        - if that fails (could be that toplevel structure changed),
+          then parse from region start to end of file,
+          update rest of list
+    *)
+    | Impl : (region * Parsetree.structure_item) list  -> Parsetree.structure_item ast_tree
+    | Intf : (region * Parsetree.signature_item) list -> Parsetree.signature_item ast_tree
+
   type parse_tree =
-    | Impl of Parsetree.structure_item list
-    | Intf of Parsetree.signature_item list
+    | MkParseTree : 'a ast_tree -> parse_tree
+
+  type 'a ast_item =
+    | ImplIt : (region * Parsetree.structure_item) -> Parsetree.structure_item ast_item
+    | IntfIt : (region * Parsetree.signature_item)  -> Parsetree.signature_item ast_item
+
+  type parse_item =
+    | MkParseItem : 'a ast_item -> parse_item
+
+
   
   (** type of state of plugin - pre-validation *)
   type t = {
@@ -77,31 +109,49 @@ module State = struct
 
 end
 
-let highlight_code_bounds ?current_buffer ~state_var =
-  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
-  let state = Buffer_local.get_exn state_var current_buffer in
-  let (iter,get_result) = Ast_transformer.bounds_iterator () in
-  let ((min_line,min_column), (max_line,max_column)) = match state.parse_tree with
-  | State.Impl si_list ->
-    iter.structure iter si_list;
-    get_result ()
-  | State.Intf si_list ->
-    iter.signature iter si_list;
-    get_result ()
+let unwrap_current_buffer current_buffer =
+  match current_buffer with Some v -> v | None -> Current_buffer.get () 
+
+(** builds the abstract tree for the current buffer buffer  *)
+let build_abstract_tree f g h ?current_buffer value =
+  let current_buffer = unwrap_current_buffer current_buffer in
+  let lexbuf = Lexing.from_string ~with_positions:true value in
+  let items =
+    f lexbuf
+    |> List.map ~f:(fun item ->
+        let (iterator,get_result) = Ast_transformer.bounds_iterator () in
+        g iterator item;
+        let ((min_line,min_column), (max_line,max_column)) = get_result () in
+        let start_marker,end_marker = Marker.create (), Marker.create () in
+        let get_position line column = 
+          message (Printf.sprintf "getting position %d %d" line column);
+          Position.of_int_exn column
+        in
+          (* Point.goto_line_and_column Line_and_column.{line;column};
+           * Point.get () in *)
+
+        Marker.set start_marker current_buffer (get_position min_line min_column);
+        Marker.set end_marker current_buffer (get_position max_line max_column);
+        State.{start_mark=start_marker;
+         end_mark=end_marker;
+         logical_start = Line_and_column.{line=min_line;column=min_column}; 
+         logical_end = Line_and_column.{line=min_line;column=min_column};
+        },item)
   in
-
-  
-()
-
-let build_implementation_tree value =
-  let lexbuf = Lexing.from_string ~with_positions:true value in
-  try Either.First (State.Impl (Parse.implementation lexbuf)) with
+  try Either.First (h items) with
     Syntaxerr.Error e -> Either.Second e
 
-let build_interface_tree value =
-  let lexbuf = Lexing.from_string ~with_positions:true value in
-  try Either.First (State.Intf (Parse.interface lexbuf)) with
-    Syntaxerr.Error e -> Either.Second e
+let build_implementation_tree =
+  build_abstract_tree
+    Parse.implementation
+    (fun iterator item -> iterator.structure_item iterator item)
+    (fun x -> State.Impl x)
+
+let build_interface_tree =
+  build_abstract_tree
+    Parse.interface
+    (fun iterator item -> iterator.signature_item iterator item)
+    (fun x -> State.Intf x)
 
 (** determines the file-type of the current file based on its extension *)
 let retrieve_current_file_type ~implementation_extensions ~interface_extensions =
@@ -142,10 +192,13 @@ let parse_current_buffer file_type =
   message "Building parse tree - may take a while if the file is large...";
   let start_time = Time.now () in
   let parse_tree =
+    let map ~f = Either.map ~second:(fun x -> x) ~first:(fun x -> f x) in
     let open State.Filetype in
     match file_type with
-    | Implementation -> build_implementation_tree buffer_text
-    | Interface -> build_interface_tree buffer_text
+    | Implementation -> map ~f:(fun x -> State.MkParseTree x) @@
+      build_implementation_tree buffer_text
+    | Interface -> map ~f:(fun x -> State.MkParseTree x) @@
+      build_interface_tree buffer_text
   in
   match parse_tree with
   | Either.Second e -> 
@@ -219,3 +272,36 @@ let retrieve_gopcaml_state ?current_buffer ~state_var =
   end else
     (State.Validated.of_state state)
 
+let find_enclosing_structure (state: State.Validated.t) point : State.parse_item option =
+  let open State in
+  let open Validated in
+  let find_enclosing_expression list = 
+    List.find list ~f:(fun (region,_) ->
+        let (let+) v f = Option.bind ~f v in
+        let contains = 
+          let+ start_position = Marker.position region.start_mark in
+          let+ end_position = Marker.position region.end_mark in           
+          Some (Position.between ~low:start_position ~high:end_position point) in
+        Option.value ~default:false contains) in
+  match state.parse_tree with 
+  | (State.MkParseTree (State.Impl si_list)) ->
+    find_enclosing_expression si_list  |> Option.map ~f:(fun x -> State.MkParseItem (State.ImplIt x))
+  | (State.MkParseTree (State.Intf si_list)) ->
+    find_enclosing_expression si_list |> Option.map ~f:(fun x -> State.MkParseItem (State.IntfIt x))
+
+(** returns a tuple of points enclosing the current structure *)
+let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
+  find_enclosing_structure state point
+  |> Option.bind ~f:begin fun expr -> let (State.MkParseItem expr) = expr in
+    let region = match expr with
+      | ImplIt (r,_) -> r
+      | IntfIt (r,_) -> r in
+    match Marker.position region.start_mark,Marker.position region.end_mark with
+    | Some s, Some e -> Some (Position.add s 1, Position.add e 1)
+    | _ -> None
+  end
+
+(* retrieve the points enclosing structure at the current position *)
+let retrieve_enclosing_structure_bounds ?current_buffer ~state_var point =
+  retrieve_gopcaml_state ?current_buffer ~state_var
+  |> Option.bind ~f:(find_enclosing_structure_bounds ~point)

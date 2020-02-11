@@ -11,7 +11,32 @@
 (gopcaml-print-region)
 (gopcaml-version)
 
+(defgroup gopcaml-faces nil
+  "Faces for gopcaml mode."
+  :group 'gopcaml-mode
+  :group 'faces)
 
+(defface gopcaml-highlight
+  '((((min-colors 88) (background dark))
+     (:background "yellow1" :foreground "black"))
+    (((background dark)) (:background "yellow" :foreground "black"))
+    (((min-colors 88)) (:background "yellow1"))
+    (t (:background "yellow")))
+  "Highlight used for gopcaml-mode"
+  :group 'gopcaml-faces)
+
+(defun gopcaml-highlight-overlay ()
+  "Example function - highlights a current expression"
+  (interactive)
+  (let ((area (gopcaml-get-enclosing-structure-bounds (point)))
+	start end)
+    (setq start (caar area))
+    (setq end (cadar area))
+    (goto-char start)
+    (set-mark (point))
+    (goto-char end)
+    (activate-mark)
+    ))
 
 (defun gopcaml-mode-print-region (start end)
   (interactive "r")
