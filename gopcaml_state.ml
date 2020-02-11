@@ -125,7 +125,7 @@ let build_abstract_tree f g h ?current_buffer value =
         let start_marker,end_marker = Marker.create (), Marker.create () in
         let get_position line column = 
           message (Printf.sprintf "getting position %d %d" line column);
-          Position.of_int_exn column
+          Position.of_int_exn (column + 1)
         in
           (* Point.goto_line_and_column Line_and_column.{line;column};
            * Point.get () in *)
@@ -297,7 +297,7 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
       | ImplIt (r,_) -> r
       | IntfIt (r,_) -> r in
     match Marker.position region.start_mark,Marker.position region.end_mark with
-    | Some s, Some e -> Some (Position.add s 1, Position.add e 1)
+    | Some s, Some e -> Some (Position.add s 0, Position.add e 0)
     | _ -> None
   end
 
