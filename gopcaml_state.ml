@@ -30,6 +30,23 @@ module State = struct
     type t = s
   end
 
+  module DirtyRegion = struct
+
+    (** tracks dirty extent of the current buffer as a range
+        (in relation to the current buffer)
+
+        we don't track it in relation to the ast due to the
+        markers delimiting each structure item
+        use automatically updating to buffer changes
+    *)
+    type t = { min: int; max: int; }
+
+    let create min max = {min;max}
+
+    let update {min; max} (bs,be,l) = {min = (Int.min bs min); max = (Int.max (be + l) max);}
+  end
+  
+
   (** region of the buffer  *)
   type region = {
     start_mark: Marker.t;
@@ -65,16 +82,15 @@ module State = struct
   type parse_item =
     | MkParseItem : 'a ast_item -> parse_item
 
-
-  
   (** type of state of plugin - pre-validation *)
   type t = {
     (** file type of the current buffer *)
     file_type: Filetype.t;
     (** parse tree of the current buffer *)
     parse_tree: parse_tree option;
-    
-  } 
+    (** dirty regions *)
+    dirty_regions: DirtyRegion.t option;
+  }
 
   module Validated = struct
     (** type of valid state of plugin  *)
@@ -86,9 +102,10 @@ module State = struct
     } 
 
     let of_state (state: t) =
-      state.parse_tree
-      |> Option.map ~f:(fun parse_tree ->
-          {file_type=state.file_type; parse_tree})
+
+    let (let+) x f = Option.bind ~f x in
+    let+ parse_tree = state.parse_tree in
+    Some {file_type=state.file_type; parse_tree}
 
     type t = s
 
@@ -105,6 +122,7 @@ module State = struct
   let default = {
     file_type = Interface;
     parse_tree = None;
+    dirty_regions = None;
   }
 
 end
@@ -241,6 +259,7 @@ let setup_gopcaml_state
   let state = State.{
       file_type = file_type;
       parse_tree = parse_tree;
+      dirty_regions = None;
     } in
   Buffer_local.set state_var (Some state) current_buffer
 
@@ -305,3 +324,44 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
 let retrieve_enclosing_structure_bounds ?current_buffer ~state_var point =
   retrieve_gopcaml_state ?current_buffer ~state_var
   |> Option.bind ~f:(find_enclosing_structure_bounds ~point)
+
+let find_invalidated_structures structure_list dirty_region =
+  let open State in
+  let DirtyRegion.{min;max} = dirty_region in
+  let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
+  let is_invalid (m: Marker.t) =
+    match Marker.position m with
+    | None -> true
+    | Some pos ->  Position.((mi <= pos) && (pos <= ma)) in
+  let rec loop (ls: (region * Parsetree.structure_item) list) (pre_edit,no_mans_land,post_edit)
+      ds =
+      match ls with
+        [] -> (List.rev pre_edit, List.rev no_mans_land, List.rev post_edit)
+      | ({ start_mark; end_mark; _ }, _ as v) :: t ->
+        if is_invalid start_mark || is_invalid end_mark then
+          loop t (pre_edit, v :: no_mans_land, post_edit) true
+        else if ds then
+          loop t (pre_edit, no_mans_land, v :: post_edit) ds
+        else
+          loop t (v :: pre_edit, no_mans_land, post_edit) ds
+    in
+    loop structure_list ([],[],[])
+  in
+
+
+
+
+  let open Validated in
+  let find_enclosing_expression list = 
+    List.find list ~f:(fun (region,_) ->
+        let (let+) v f = Option.bind ~f v in
+        let contains = 
+          let+ start_position = Marker.position region.start_mark in
+          let+ end_position = Marker.position region.end_mark in           
+          Some (Position.between ~low:start_position ~high:end_position point) in
+        Option.value ~default:false contains) in
+  match state.parse_tree with 
+  | (State.MkParseTree (State.Impl si_list)) ->
+    find_enclosing_expression si_list  |> Option.map ~f:(fun x -> State.MkParseItem (State.ImplIt x))
+  | (State.MkParseTree (State.Intf si_list)) ->
+    find_enclosing_expression si_list |> Option.map ~f:(fun x -> State.MkParseItem (State.IntfIt x))

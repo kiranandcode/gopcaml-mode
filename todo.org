@@ -1,0 +1,24 @@
+* Gopcaml-mode Todo
+** DONE Update temporary highlight function to be less convoluted
+   CLOSED: [2020-02-12 Wed 13:53]
+** TODO Rebuild parse tree on changes
+*** use after-change-functions to track changed location              :elisp:
+*** use idle timer to queue update                                    :elisp:
+*** setup function to rebuild region of parse tree                    :ocaml:
+**** split list into three - before, in and after region
+**** parse edited region and replace in section
+**** otherwise, parse from start to eof and replace in and after
+**** otherwise, reparse file
+**** otherwise drop changes
+** TODO Implement highlight current expression
+*** Iterate through structure item, find nearest enclosing bounds
+** TODO Swap code regions at the same level
+*** Write zipper for AST
+*** use zipper to find bounds for both regions
+*** perform swap in emacs using marker to remember the insert positions
+** TODO Implement go to parent
+*** use zipper to move to parent
+** TODO Implement move into
+** TODO Implement move outof
+** TODO Use set-transient-map to implement a tmm
+** TODO Extract binding
