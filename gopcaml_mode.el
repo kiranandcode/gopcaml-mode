@@ -4,12 +4,6 @@
 ;;     (copy-file module tmpfile t)
 ;;     (module-load tmpfile)))
 
-this is some text
-
-and this is some more text
-
-and I'd like to work out the edited region
-
 (add-to-list 'load-path (expand-file-name "./_build/default/"))
 (require 'gopcaml)
 ;; (fake-module-reload "./_build/default/gopcaml.so")
@@ -26,6 +20,7 @@ and I'd like to work out the edited region
 
 (defvar-local gopcaml-temporary-highlight-overlays nil
   "Maintains an the overlay used for single-element highlights.")
+
 
 (defun gopcaml-remove-stored-overlays (&optional group)
   "Remove stored overlays - optionally only those of gopcaml-kind GROUP."
@@ -62,53 +57,34 @@ removes all existing overlays of type GROUP if present."
   (interactive)
   (let ((area (gopcaml-get-enclosing-structure-bounds (point)))
 	start end)
-    (setq start (caar area))
-    (setq end (cadar area))
-    (gopcaml-temporarily-highlight-region (cons start end))))
-
-(defvar-local gopcaml-changes-min-region nil "tracks minmial range of dirty region")
-(defvar-local gopcaml-changes-max-region nil "tracks maximal range of dirty region")
-(defvar-local gopcaml-changes-delta-region 0  "tracks delta changes of dirty region")
-
-
-(defun gopcaml-reset-dirty-region ()
-  (interactive)
-  (setq gopcaml-changes-min-region nil)
-  (setq gopcaml-changes-max-region nil)
-  (setq gopcaml-changes-delta-region 0))
+    (when area
+      (setq start (caar area))
+      (setq end (cadar area))
+      (gopcaml-temporarily-highlight-region (cons start end)))))
 
 (defun gopcaml-highlight-dirty-region ()
+  "Highlight the dirty region."
   (interactive)
-  (when (and gopcaml-changes-min-region gopcaml-changes-max-region
-	     (not (equal  gopcaml-changes-min-region gopcaml-changes-max-region)))
-      (goto-char (+ gopcaml-changes-min-region gopcaml-changes-delta-region))
-      (push-mark (+ gopcaml-changes-max-region gopcaml-changes-delta-region))
-      (setq mark-active t)))
+  (let ((area (car (gopcaml-get-dirty-region)))
+	start end)
+    (setq start (car area))
+    (setq end (cdr area))
+    (gopcaml-temporarily-highlight-region (cons start end))))
 
-(defun gopcaml-track-after-changes (start end length)
-  (cond
-   ((equal length 0)
-    (setq gopcaml-changes-delta-region
-	  (+ gopcaml-changes-delta-region (- start end))))
-   ((equal start end)
-    (setq gopcaml-changes-delta-region
-	  (+ gopcaml-changes-delta-region length))))
-  (if gopcaml-changes-min-region
-      (setq gopcaml-changes-min-region
-	    (min gopcaml-changes-min-region (+ start length)))
-    (setq gopcaml-changes-min-region (+ start length)))
-  (if gopcaml-changes-max-region
-      (setq gopcaml-changes-max-region
-	    (max gopcaml-changes-max-region (+ end length)))
-    (setq gopcaml-changes-max-region (+ end length))))
+(defun gopcaml-setup-bindings ()
+  (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
+  (bind-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region gopcaml-mode-map)
+  (setq after-change-functions
+	(cons #'gopcaml-update-dirty-region after-change-functions)))
 
-(local-set-key (kbd "C-c C-k") #'gopcaml-reset-dirty-region)
-(local-set-key (kbd "C-c C-l") #'gopcaml-highlight-dirty-region)
+(add-hook 'gopcaml-mode-hook #'gopcaml-setup-bindings)
 
-(push #'gopcaml-track-after-changes after-change-functions)
-
+(local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
+(local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
 
 (find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/gopcaml_state.ml")
 (gopcaml-mode)
+(gopcaml-setup-bindings)
+
 
 (provide 'gopcaml-mode)

@@ -90,6 +90,30 @@ let define_functions () =
                                      ~state_var:Variables.state_var) in
      (getter ()));
   defun
+    ("gopcaml-update-dirty-region" |> Symbol.intern)
+    [%here]
+    ~docstring:{|
+        Notify gopcaml-mode of change to dirty region.
+                       |}
+    (Returns Value.Type.unit)
+    (let open Defun.Let_syntax in
+     let%map_open st = required "start" (Value.Type.int)
+     and ed = required "end" (Value.Type.int) 
+     and len = required "length" (Value.Type.int) in
+     Gopcaml_state.update_dirty_region ~state_var:Variables.state_var (st,ed,len)
+    );
+  defun
+    ("gopcaml-get-dirty-region" |> Symbol.intern)
+    [%here]
+    ~docstring:{|
+        Retrieve gopcaml-mode's dirty region bounds.
+                       |}
+    (Returns (Value.Type.option (Value.Type.tuple Value.Type.int Value.Type.int)))
+    (let open Defun.Let_syntax in
+     let%map_open getter = return (Gopcaml_state.get_dirty_region ~state_var:Variables.state_var) in
+     getter () 
+    );
+  defun
     ("gopcaml-get-enclosing-structure-bounds" |> Symbol.intern)
     [%here]
     ~docstring:{| Retrieve a pair of points enclosing the structure item at the current point |}
@@ -101,7 +125,6 @@ let define_functions () =
        point
      |> Option.map ~f:(fun (a,b) -> [a;b])
      )  
-
 
 let gopcaml_mode =
   Major_mode.define_derived_mode
