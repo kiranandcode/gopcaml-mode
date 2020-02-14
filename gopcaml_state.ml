@@ -511,7 +511,7 @@ let apply_iterator (item: State.parse_item) iter f  =
   | ImplIt (_,it) -> iter.Ast_iterator.structure_item iter it
   | IntfIt (_, it) -> iter.Ast_iterator.signature_item iter it
   end;
-  f () 
+  f ()
 
 (** returns a tuple of points enclosing the current structure *)
 let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
@@ -604,7 +604,7 @@ let delete_zipper ?current_buffer ~zipper_var () =
 let abstract_zipper_to_bounds zipper = zipper
   |> Option.map ~f:Ast_zipper.to_bounds
   |> Option.map ~f:(fun (st,ed) ->
-      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
+      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 0)
     )
 
 (** retrieve bounds for current zipper *)
@@ -657,5 +657,16 @@ let move_zipper_up ?current_buffer ~zipper_var () =
       zipper
     )
   |>  abstract_zipper_to_bounds  
+
+(** attempts to swap the zipper *)
+let zipper_swap ?current_buffer ~zipper_var () =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:Ast_zipper.calculate_swap_bounds
+  |> Option.map ~f:(fun ((l1,l2),(r1,r2),zipper) ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1)),
+      (Position.of_int_exn (r1 + 1),Position.of_int_exn (r2 + 1))
+    )
 
   

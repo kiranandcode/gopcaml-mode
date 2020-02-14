@@ -231,9 +231,19 @@ let define_functions () =
        return @@ Gopcaml_state.move_zipper_down ~zipper_var:Variables.zipper_var in
      op ()
      |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-begin-zipper-swap" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Updates the current zipper to swap the current element - returning
+    the range to be swapped. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.zipper_swap ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun ((a,b),(c,d)) -> [a; b;c;d])
     )
-
-
 
 let gopcaml_mode =
   Major_mode.define_derived_mode

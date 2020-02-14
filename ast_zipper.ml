@@ -13,17 +13,35 @@ type zipper =
 type location =
   | MkLocation of t * zipper
 
-(* converts a zipper to the bounds of the current item *)
+let rec t_to_bounds = function
+  | Signature_item { psig_loc = { loc_start; loc_end;_ }; _ } 
+  | Structure_item { pstr_loc = { loc_start; loc_end;_ }; _ } ->
+    (loc_start.pos_cnum,loc_end.pos_cnum)
+  (* if its a sequence, take the union *)
+  | Sequence (left,elem,right) ->
+    List.map ~f:t_to_bounds (left @ right)
+    |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(t_to_bounds elem)
+
+(** converts a zipper to the bounds of the current item *)
 let to_bounds (MkLocation (current,_)) = 
-  let rec to_bounds = function
-    | Signature_item { psig_loc = { loc_start; loc_end;_ }; _ } 
-    | Structure_item { pstr_loc = { loc_start; loc_end;_ }; _ } ->
-      (loc_start.pos_cnum,loc_end.pos_cnum)
-    (* if its a sequence, take the union *)
-    | Sequence (left,elem,right) ->
-      List.map ~f:to_bounds (left @ right)
-      |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(to_bounds elem) in
-  to_bounds current
+  t_to_bounds current
+
+(** updates the bounds of the zipper by a fixed offset *)
+let update_bounds ~(diff:int) state =
+  let mapper = {Ast_mapper.default_mapper with location = (fun _ { loc_start; loc_end; loc_ghost } ->
+      Location.{
+        loc_start={loc_start with pos_cnum = loc_start.pos_cnum + diff};
+        loc_end={loc_end with pos_cnum = loc_end.pos_cnum + diff};
+        loc_ghost=loc_ghost}
+    ) } in
+  let rec update state = 
+    match state with
+    | Signature_item si -> Signature_item (mapper.signature_item mapper si)
+    | Structure_item si -> Structure_item (mapper.structure_item mapper si)
+    | Sequence (l,c,r) ->
+      let update_ls = List.map ~f:update in
+      Sequence (update_ls l, update c, update_ls r) in
+  update state
 
 let make_zipper_intf left intf right =
   let left = List.map ~f:(fun x -> Signature_item x) left in
@@ -63,4 +81,17 @@ let go_right (MkLocation (current,parent)) =
     Some (MkLocation (r, Node {below=current::below; parent; above=right}))
   | _ -> None
 
+
+(** swaps two elements at the same level, returnig the new location  *)
+let calculate_swap_bounds (MkLocation (current,parent)) =
+  match parent with
+  | Node { below=l::left; parent; above } ->
+    let current_bounds =  t_to_bounds current in
+    let prev_bounds = t_to_bounds l in
+    let current_diff = fst prev_bounds - fst current_bounds in
+    let prev_diff = snd current_bounds - snd prev_bounds in
+    Some (current_bounds, prev_bounds, MkLocation ((update_bounds ~diff:prev_diff l), (Node {
+        below=(update_bounds ~diff:current_diff current)::left; parent; above
+      })))
+  | _ -> None
 

@@ -22,7 +22,8 @@
 *** use zipper to move to parent
 ** DONE Use set-transient-map to implement a tmm
    CLOSED: [2020-02-14 Fri 18:22]
-** TODO Swap code regions at the same level
+** DONE Swap code regions at the same level
+   CLOSED: [2020-02-14 Fri 17:05]
 *** use zipper to find bounds for both regions
 *** perform swap in emacs using marker to remember the insert positions
 ** TODO Implement move into

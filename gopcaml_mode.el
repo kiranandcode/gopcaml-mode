@@ -93,6 +93,41 @@ removes all existing overlays of type GROUP if present."
       (goto-char start)
       )))
 
+(defun gopcaml-zipper-transpose ()
+  "Transpose two elements at the same level."
+  (interactive)
+  (let ((area (car (gopcaml-begin-zipper-swap)))
+	region1-start
+	region1-end
+	region2-start
+	region2-end)
+    (when area
+      (setq region1-start (car area))
+      (setq region1-end (car (cdr area)))
+      (setq region2-start (car (cdr (cdr area))))
+      (setq region2-end (car (cdr (cdr (cdr area)))))
+      (let ((region1-str (buffer-substring region1-start region1-end))
+	    (region2-str (buffer-substring region2-start region2-end)))
+	(when (< region2-start region1-start)
+	  (cl-psetq region1-start region2-start
+		    region1-end region2-end
+		    region1-str region2-str
+		    region2-start region1-start
+		    region2-end region1-end
+		    region2-str region1-str))
+	(progn
+	  (delete-region region2-start region2-end)
+	  (goto-char region2-start)
+	  (insert region1-str))
+	(progn
+	  (delete-region region1-start region1-end)
+	  (goto-char region1-start)
+	  (insert region2-str)))
+      (setq area (car (gopcaml-retrieve-zipper-bounds)))
+      (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+      (goto-char (car area))
+      )))
+
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
     (define-key gopcaml-map (kbd "e") '(lambda ()
@@ -111,6 +146,9 @@ removes all existing overlays of type GROUP if present."
 					 (interactive)
 					 (move-gopcaml-zipper
 					  #'gopcaml-move-zipper-right)))
+    (define-key gopcaml-map (kbd "t") '(lambda ()
+					 (interactive)
+					 (gopcaml-zipper-transpose)))
     gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
 
