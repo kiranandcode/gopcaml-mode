@@ -124,7 +124,29 @@ let define_functions () =
        ~state_var:Variables.state_var
        point
      |> Option.map ~f:(fun (a,b) -> [a;b])
-     )  
+    );
+  defun
+    ("gopcaml-get-enclosing-bounds" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Retrieve a pair of points enclosing the expression at the current point |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" (Position.type_) in
+     Gopcaml_state.retrieve_enclosing_bounds
+       ~state_var:Variables.state_var
+       point
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-ensure-updated-state" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Ensure that the gopcaml-state is up to date |}
+    (Returns (Value.Type.unit))
+    (let open Defun.Let_syntax in
+     let%map_open getter = return @@ Gopcaml_state.retrieve_gopcaml_state ~state_var:Variables.state_var in
+     ignore (getter ())
+    )
+
 
 let gopcaml_mode =
   Major_mode.define_derived_mode

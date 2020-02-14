@@ -1,7 +1,8 @@
 * Gopcaml-mode Todo
 ** DONE Update temporary highlight function to be less convoluted
    CLOSED: [2020-02-12 Wed 13:53]
-** TODO Rebuild parse tree on changes
+** DONE Rebuild parse tree on changes
+   CLOSED: [2020-02-14 Fri 12:59]
 *** use after-change-functions to track changed location              :elisp:
 *** use idle timer to queue update                                    :elisp:
 *** setup function to rebuild region of parse tree                    :ocaml:
@@ -9,7 +10,8 @@
 **** parse edited region and replace in section
 **** otherwise, parse from start to eof and replace in and after
 **** otherwise, reparse file
-**** otherwise drop changes
+**** DONE otherwise drop changes
+     CLOSED: [2020-02-14 Fri 12:59]
 ** TODO Implement highlight current expression
 *** Iterate through structure item, find nearest enclosing bounds
 ** TODO Swap code regions at the same level

@@ -1,6 +1,7 @@
 open Core
 open Ecaml
 
+
 module State = struct
 
   module Filetype = struct
@@ -320,11 +321,11 @@ module State = struct
     *)
     type t =
       | Clean of parse_tree
-      | Dirty of { tree: parse_tree; min: int; max: int; }
+      | Dirty
 
     let get_dirty_region = function
       | Clean _ -> None
-      | Dirty {min;max;_} -> Some (min,max)
+      | Dirty -> Some (0,-1)
 
     let is_dirty = function
       | Clean _ -> false
@@ -334,48 +335,18 @@ module State = struct
     let create tree = Clean tree
 
     (** updates the parse tree to denote the range of the dirty region *)
-    let update (dr:t) (s,e,l: (int * int * int)) : t =
-      let find_bounding_regions (tree:parse_tree) min max =
-        let (MkParseTree items) = tree in
-        match items with
-        | Intf items ->
-          let pre,inv,post = TreeBuilder.calculate_region min max items () in
-          let (min,max) = TreeBuilder.calculate_start_end
-              (fun iterator st -> iterator.signature_item iterator st)
-              min max pre inv post in
-          (Position.to_int min, Position.to_int max)
-        | Impl items ->
-          let pre,inv,post = TreeBuilder.calculate_region min max items () in
-          let (min,max) = TreeBuilder.calculate_start_end
-              (fun iterator st -> iterator.structure_item iterator st)
-              min max pre inv post in
-          (Position.to_int min, Position.to_int max)
-      in
-      match (dr : t) with
-      | Clean tree ->
-        let (min,max) = Position.of_int_exn s, Position.of_int_exn (e + l) in
-        let (min,max) = find_bounding_regions tree min max in
-        Dirty {tree; min;max}
-      | Dirty {tree;min;max;} ->
-        let min,max = Int.min min s, Int.max (max + l) (e + l) in
-        let (min,max) = Position.of_int_exn min, Position.of_int_exn max in
-        let (min,max) = find_bounding_regions tree min max in
-        Dirty {tree; min;max}
+    let update (_:t) (_s,_e,_l: (int * int * int)) : t =
+      (* todo: track detailed changes *)
+      Dirty
 
 
     (** builds an updated parse_tree (updating any dirty regions) *)
-    let to_tree (dr:t) (_file_type: Filetype.t) : parse_tree =
+    let to_tree (dr:t) (_file_type: Filetype.t) : parse_tree option =
       match dr with
-      | Clean tree -> tree
-      | Dirty {tree;min;max;} ->
-        let (MkParseTree items) = tree  in
-        match items with
-        | Impl items ->
-          let items = TreeBuilder.rebuild_impl_parse_tree min max items () in
-          MkParseTree (Impl items)
-        | Intf items ->
-          let items = TreeBuilder.rebuild_intf_parse_tree min max items () in
-          MkParseTree (Intf items)
+      | Clean tree -> Some tree
+      | Dirty ->
+        TreeBuilder.parse_current_buffer _file_type
+
   end
 
   (** type of state of plugin - pre-validation *)
@@ -383,7 +354,7 @@ module State = struct
     (** file type of the current buffer *)
     file_type: Filetype.t;
     (** parse tree of the current buffer + any dirty regions *)
-    parse_tree: DirtyRegion.t option;
+    parse_tree: DirtyRegion.t;
   }
 
   module Validated = struct
@@ -400,19 +371,11 @@ module State = struct
     let of_state (state: t)  =
       let (let+) x f = Option.bind ~f x in
       let should_store = ref false in
-      let+ parse_tree = match state.parse_tree with
-        | (Some _ as t) -> t
-        | None -> 
-          message "Buffer AST not built - rebuilding...";
-          should_store := true;
-          TreeBuilder.parse_current_buffer state.file_type
-          |> Option.map ~f:DirtyRegion.create
-      in
-      if DirtyRegion.is_dirty parse_tree then should_store := true;
-      let parse_tree = DirtyRegion.to_tree parse_tree state.file_type in
+      let+ parse_tree = DirtyRegion.to_tree state.parse_tree state.file_type in
+      if DirtyRegion.is_dirty state.parse_tree then should_store := true;
       if !should_store then
         Some ({file_type=state.file_type; parse_tree},
-              Some ({file_type=state.file_type; parse_tree = Some (DirtyRegion.create parse_tree)}:t))
+              Some ({file_type=state.file_type; parse_tree = (DirtyRegion.create parse_tree)}:t))
       else
         Some ({file_type=state.file_type; parse_tree}, None)
 
@@ -430,11 +393,10 @@ module State = struct
 
   let default = {
     file_type = Interface;
-    parse_tree = None;
+    parse_tree = DirtyRegion.Dirty;
   }
 
 end
-
 
 
 (** sets up the gopcaml-mode state - intended to be called by the startup hook of gopcaml mode*)
@@ -465,7 +427,7 @@ let setup_gopcaml_state
              editing.";
   let state = State.{
       file_type = file_type;
-      parse_tree = Option.map ~f:DirtyRegion.create parse_tree;
+      parse_tree = match parse_tree with None -> DirtyRegion.Dirty | Some tree -> DirtyRegion.create tree;
     } in
   Buffer_local.set state_var (Some state) current_buffer
 
@@ -476,12 +438,15 @@ let get_gopcaml_file_type ?current_buffer ~state_var () =
   let file_type_name = State.Filetype.to_string state.State.file_type in
   file_type_name
 
+
 (** update the file type of the variable   *)
+[@@@warning "-23"]
 let set_gopcaml_file_type ?current_buffer ~state_var file_type =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
-  let state = State.{state with file_type = file_type } in
+  let state = State.{state with parse_tree=Dirty; file_type = file_type } in
   Buffer_local.set state_var (Some state) current_buffer
+
 
 let find_enclosing_structure (state: State.Validated.t) point : State.parse_item option =
   let open State in
@@ -500,6 +465,15 @@ let find_enclosing_structure (state: State.Validated.t) point : State.parse_item
   | (State.MkParseTree (State.Intf si_list)) ->
     find_enclosing_expression si_list |> Option.map ~f:(fun x -> State.MkParseItem (State.IntfIt x))
 
+let apply_iterator (item: State.parse_item) iter f  =
+  let open State in
+  let (MkParseItem elem) = item in
+  begin match elem with
+  | ImplIt (_,it) -> iter.Ast_iterator.structure_item iter it
+  | IntfIt (_, it) -> iter.Ast_iterator.signature_item iter it
+  end;
+  f () 
+
 (** returns a tuple of points enclosing the current structure *)
 let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
   find_enclosing_structure state point
@@ -508,41 +482,43 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
       | ImplIt (r,_) -> r
       | IntfIt (r,_) -> r in
     match Marker.position region.start_mark,Marker.position region.end_mark with
-    | Some s, Some e -> Some (Position.add s 0, Position.add e 0)
+    | Some s, Some e -> Some (Position.add s 1, Position.add e 1)
     | _ -> None
   end
 
-
+(** returns a tuple of points enclosing the current expression *)
+let find_enclosing_bounds (state: State.Validated.t) ~point =
+  find_enclosing_structure state point
+  |> Option.bind ~f:begin fun expr ->
+    let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
+    apply_iterator expr iter getter
+  |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
+  end
 
 
 (** updates the dirty region of the parse tree *)
 let update_dirty_region ?current_buffer ~state_var (s,e,l) =
-  message (Printf.sprintf "updating dirty region with s:%d-%d l:%d" s e l);
+  (* message (Printf.sprintf "updating dirty region with s:%d-%d l:%d" s e l); *)
+  let (let+) x f = ignore @@ Option.map ~f x in
   let open State in
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
-  let state = Buffer_local.get_exn state_var current_buffer in
-  match state.parse_tree with
-  | None ->
-    message "no parse tree not updating dirty region";
-    ()                  (* no parse tree, no point tracking dirty regions *)
-  | Some dr ->
-    message "dirty region present, removing";
-    let parse_tree = DirtyRegion.update dr (s,e,l) in
-    let state = {state with parse_tree = Some parse_tree} in
-    Buffer_local.set state_var (Some state) current_buffer
+  let+ state = Buffer_local.get state_var current_buffer in
+  let parse_tree = DirtyRegion.update state.parse_tree (s,e,l) in
+  let state = {state with parse_tree = parse_tree} in
+  Buffer_local.set state_var (Some state) current_buffer
+
 
 (** retrieves the dirty region if it exists *)
 let get_dirty_region ?current_buffer ~state_var ()  =
   let open State in
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
-  match state.parse_tree with
-  | None -> None
-  | Some dr -> DirtyRegion.get_dirty_region dr
+  DirtyRegion.get_dirty_region state.parse_tree
+
 
 (** retrieves the gopcaml state value, attempting to construct the
     parse tree if it has not already been made *)
-let retrieve_gopcaml_state ?current_buffer ~state_var =
+let retrieve_gopcaml_state ?current_buffer ~state_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
   let (let+) x f = Option.bind ~f x in
@@ -554,6 +530,11 @@ let retrieve_gopcaml_state ?current_buffer ~state_var =
 
 (** retrieve the points enclosing structure at the current position *)
 let retrieve_enclosing_structure_bounds ?current_buffer ~state_var point =
-  retrieve_gopcaml_state ?current_buffer ~state_var
+  retrieve_gopcaml_state ?current_buffer ~state_var ()
   |> Option.bind ~f:(find_enclosing_structure_bounds ~point)
+
+(** retrieve the points enclosing expression at the current position *)
+let retrieve_enclosing_bounds ?current_buffer ~state_var point =
+  retrieve_gopcaml_state ?current_buffer ~state_var ()
+  |> Option.bind ~f:(find_enclosing_bounds ~point)
 

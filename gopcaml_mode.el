@@ -8,6 +8,8 @@
 (require 'gopcaml)
 ;; (fake-module-reload "./_build/default/gopcaml.so")
 
+
+
 (defgroup gopcaml-faces nil
   "Faces for gopcaml mode."
   :group 'gopcaml-mode
@@ -21,6 +23,10 @@
 (defvar-local gopcaml-temporary-highlight-overlays nil
   "Maintains an the overlay used for single-element highlights.")
 
+(defcustom gopcaml-rebuild-delay 1
+  "Number of idling seconds before rebuilding gopcaml-state."
+  :type 'integer
+  :group 'gopcaml)
 
 (defun gopcaml-remove-stored-overlays (&optional group)
   "Remove stored overlays - optionally only those of gopcaml-kind GROUP."
@@ -55,7 +61,7 @@ removes all existing overlays of type GROUP if present."
 (defun gopcaml-highlight-current-structure-item ()
   "Highlight the structure-item enclosing the current point."
   (interactive)
-  (let ((area (gopcaml-get-enclosing-structure-bounds (point)))
+  (let ((area (gopcaml-get-enclosing-bounds (point)))
 	start end)
     (when area
       (setq start (caar area))
@@ -73,19 +79,22 @@ removes all existing overlays of type GROUP if present."
       (gopcaml-temporarily-highlight-region (cons start end)))))
 
 (defun gopcaml-setup-bindings ()
+  (message "setting up gopcaml-bindings")
   (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
   (bind-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region gopcaml-mode-map)
   (setq after-change-functions
-	(cons #'gopcaml-update-dirty-region after-change-functions)))
+	(cons #'gopcaml-update-dirty-region after-change-functions))
+  (run-with-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state))
 
 (add-hook 'gopcaml-mode-hook #'gopcaml-setup-bindings)
 
 (local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
 (local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
 
-(find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/ast_transformer.ml")
+(find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/gopcaml_state.ml")
 (gopcaml-mode)
 (gopcaml-setup-bindings)
+
 
 
 (provide 'gopcaml-mode)
