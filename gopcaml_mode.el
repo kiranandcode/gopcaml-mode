@@ -67,9 +67,10 @@ removes all existing overlays of type GROUP if present."
   (interactive)
   (let ((area (car (gopcaml-get-dirty-region)))
 	start end)
-    (setq start (car area))
-    (setq end (cdr area))
-    (gopcaml-temporarily-highlight-region (cons start end))))
+    (when area
+      (setq start (car area))
+      (setq end (cdr area))
+      (gopcaml-temporarily-highlight-region (cons start end)))))
 
 (defun gopcaml-setup-bindings ()
   (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
@@ -82,7 +83,7 @@ removes all existing overlays of type GROUP if present."
 (local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
 (local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
 
-(find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/gopcaml_state.ml")
+(find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/ast_transformer.ml")
 (gopcaml-mode)
 (gopcaml-setup-bindings)
 

@@ -30,29 +30,7 @@ module State = struct
     type t = s
   end
 
-  module DirtyRegion = struct
 
-    (** tracks dirty extent of the current buffer as a range
-        (in relation to the current buffer)
-
-        we don't track it in relation to the ast due to the
-        markers delimiting each structure item
-        use automatically updating to buffer changes
-    *)
-    type t = { min: int; max: int; }
-
-    let create bs be l =
-      {min = bs; max = be + l}
-
-
-    let update {min; max} (bs,be,l) =
-      message (Printf.sprintf "updating dirty region from %d-%d to %d-%d on  s:%d-%d l:%d"
-                 min max
-                 (Int.min bs min)
-                 (Int.max (be + l) (max + l))
-                 bs be l);
-      {min = (Int.min bs min); max = (Int.max (be + l) (max + l));}
-  end
 
 
   (** region of the buffer  *)
@@ -90,12 +68,322 @@ module State = struct
   type parse_item =
     | MkParseItem : 'a ast_item -> parse_item
 
+  module TreeBuilder = struct
+    let unwrap_current_buffer current_buffer =
+      match current_buffer with Some v -> v | None -> Current_buffer.get () 
+
+    (** builds the abstract tree for the current buffer buffer  *)
+    let build_abstract_tree f g h ?current_buffer value =
+      let current_buffer = unwrap_current_buffer current_buffer in
+      let lexbuf = Lexing.from_string ~with_positions:true value in
+      let items =
+        f lexbuf
+        |> List.map ~f:(fun item ->
+            let (iterator,get_result) = Ast_transformer.bounds_iterator () in
+            g iterator item;
+            let ((min_line,min_column), (max_line,max_column)) = get_result () in
+            let start_marker,end_marker = Marker.create (), Marker.create () in
+            let get_position line column = 
+              message (Printf.sprintf "getting position %d %d" line column);
+              Position.of_int_exn column
+            in
+            (* Point.goto_line_and_column Line_and_column.{line;column};
+             * Point.get () in *)
+
+            Marker.set start_marker current_buffer (get_position min_line min_column);
+            Marker.set end_marker current_buffer (get_position max_line max_column);
+            {start_mark=start_marker;
+             end_mark=end_marker;
+             logical_start = Line_and_column.{line=min_line;column=min_column}; 
+             logical_end = Line_and_column.{line=min_line;column=min_column};
+            },item)
+      in
+      if not @@ String.is_empty value then
+        try Either.First (h items) with
+          Syntaxerr.Error e -> Either.Second e
+      else Either.First (h [])
+
+
+
+    let build_implementation_tree =
+      build_abstract_tree
+        Parse.implementation
+        (fun iterator item -> iterator.structure_item iterator item)
+        (fun x -> Impl x)
+
+    let build_interface_tree =
+      build_abstract_tree
+        Parse.interface
+        (fun iterator item -> iterator.signature_item iterator item)
+        (fun x -> Intf x)
+
+
+
+    (** determines the file-type of the current file based on its extension *)
+    let retrieve_current_file_type ~implementation_extensions ~interface_extensions =
+      Current_buffer.file_name ()
+      |> Option.bind ~f:(fun file_name ->
+          String.split ~on:'.' file_name
+          |> List.last
+          |> Option.bind ~f:(fun ext ->
+              message (Printf.sprintf "extension of %s is %s" file_name ext);
+              message (Printf.sprintf "impls: %s, intfs: %s"
+                         (String.concat ~sep:", " implementation_extensions)
+                         (String.concat ~sep:", " interface_extensions)
+                      );
+
+              if List.mem ~equal:String.(=) implementation_extensions ext
+              then begin
+                message "filetype is implementation";
+                Some Filetype.Implementation
+              end
+              else if List.mem ~equal:String.(=) interface_extensions ext
+              then begin
+                message "filetype is interface";
+                Some Filetype.Interface
+              end
+              else None
+            )
+        )
+
+
+    (** attempts to parse the current buffer according to the inferred file type  *)
+    let parse_current_buffer ?start ?end_ file_type =
+      (* retrieve the text for the entire buffer *)
+      let buffer_text =
+          Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
+      message (Printf.sprintf "Parsing called on \"%s\"" buffer_text);
+      let perform_parse () = 
+        let _ = let open Filetype in
+          match file_type with
+          | Interface -> message "filetype is interface."
+          | Implementation -> message "filetype is implementation." in
+        message "Building parse tree - may take a while if the file is large...";
+        let start_time = Time.now () in
+        let parse_tree =
+          let map ~f = Either.map ~second:(fun x -> x) ~first:(fun x -> f x) in
+          let open Filetype in
+          match file_type with
+          | Implementation -> map ~f:(fun x -> MkParseTree x) @@
+            build_implementation_tree buffer_text
+          | Interface -> map ~f:(fun x -> MkParseTree x) @@
+            build_interface_tree buffer_text
+        in
+        match parse_tree with
+        | Either.Second e -> 
+          message ("Could not build parse tree: " ^ ExtLib.dump e);
+          None
+        | Either.First tree ->
+          let end_time = Time.now () in
+          message (Printf.sprintf
+                     "Successfully built parse tree (%f ms)"
+                     ((Time.diff end_time start_time) |> Time.Span.to_ms)
+                  );
+          Some tree
+      in
+      if not @@ String.is_empty buffer_text then
+      try perform_parse ()
+      with Parser.Error -> 
+        message (Printf.sprintf "parsing got error parse.error");
+        None
+         | Syntaxerr.Error err ->
+           message (Printf.sprintf "parsing got error %s" (ExtLib.dump err));
+           None
+      else match file_type with
+        | Interface -> Some (MkParseTree (Intf []))
+        | Implementation -> Some (MkParseTree (Impl []))
+
+    let calculate_region mi ma structure_list _ (* dirty_region *) =
+      (* first split the list of structure-items by whether they are invalid or not  *)
+      let is_invalid ms2 me2 =
+        let region_contains s1 e1 s2 e2  =
+          let open Position in
+          (((s1 <= s2) && (s2 <= e1)) ||
+           ((s1 <= e2) && (e2 <= e1)) ||
+           ((s2 <= s1) && (s1 <= e2)) ||
+           ((s2 <= e1) && (e1 <= e2))
+          ) in
+        match Marker.position ms2, Marker.position me2 with
+        | Some s2, Some e2 ->
+          region_contains mi ma s2 e2
+        | _ -> true in
+      let (pre, invalid) =
+        List.split_while ~f:(fun ({ start_mark; end_mark; _ }, _) ->
+            not @@ is_invalid start_mark end_mark
+          ) structure_list in
+      let invalid = List.rev invalid in
+      let (post, inb) =
+        List.split_while ~f:(fun ({ start_mark; end_mark; _ }, _) ->
+            not @@ is_invalid start_mark end_mark
+          ) invalid in
+      let post = List.rev post in
+      (pre,inb,post) 
+
+    let calculate_start_end f mi ma pre_edit_region invalid_region post_edit_region =
+      let start_region =
+        match List.last pre_edit_region with
+        | Some (_, st) ->
+          let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
+          f iterator st;
+          let ((_,_),(_,c)) = get_bounds () in
+          Position.of_int_exn c
+        | None ->
+          match invalid_region with
+          | (_,st) :: _ ->
+            let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
+            f iterator st;
+            let ((_,_),(_,c)) = get_bounds () in
+            Position.of_int_exn c
+          | [] -> mi
+      in
+      let end_region =
+        match post_edit_region with
+        | (_, st) :: _ ->
+          let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
+          f iterator st;
+          let ((_,_),(_,c)) = get_bounds () in
+          Position.of_int_exn c
+        | [] ->
+          match List.last invalid_region with
+          | Some (_,st) ->
+            let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
+            f iterator st;
+            let ((_,_),(_,c)) = get_bounds () in
+            Position.of_int_exn c
+          | None -> ma in
+      (start_region,end_region)
+
+
+
+
+    let abstract_rebuild_region f start_region end_region pre_edit_region post_edit_region  =
+      (* first, attempt to parse the exact modified region *)
+      match parse_current_buffer
+              ~start:start_region ~end_:end_region Filetype.Interface
+      with
+      | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range @ post_edit_region
+      | None ->
+        (* otherwise, try to reparse from the start to the end *)
+        match parse_current_buffer
+                ~start:start_region Filetype.Interface
+        with
+        | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range
+        | None ->
+          (* otherwise, try to reparse from the start to the end *)
+          match parse_current_buffer Filetype.Interface
+          with
+          | Some v -> let reparsed_range = f v in reparsed_range
+          | None -> pre_edit_region @ post_edit_region
+
+
+
+    let rebuild_intf_parse_tree min max structure_list dirty_region =
+      let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
+      let (pre_edit_region,invalid_region,post_edit_region) =
+        calculate_region mi ma structure_list dirty_region in
+      let (start_region,end_region) =
+        calculate_start_end
+          (fun iterator st -> iterator.signature_item iterator st)
+          mi ma pre_edit_region invalid_region post_edit_region in
+      abstract_rebuild_region
+        (fun (MkParseTree tree) -> 
+           match tree with
+           | Impl _ -> assert false
+           | Intf reparsed_range -> reparsed_range)
+        start_region end_region pre_edit_region post_edit_region
+
+    let rebuild_impl_parse_tree min max structure_list dirty_region =
+      let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
+      let (pre_edit_region,invalid_region,post_edit_region) =
+        calculate_region mi ma structure_list dirty_region in
+      let (start_region,end_region) =
+        calculate_start_end
+          (fun iterator st -> iterator.structure_item iterator st)
+          mi ma pre_edit_region invalid_region post_edit_region in
+      abstract_rebuild_region
+        (fun (MkParseTree tree) -> 
+           match tree with
+           | Impl reparsed_range -> reparsed_range
+           | Intf _ -> assert false)
+        start_region end_region pre_edit_region post_edit_region
+
+  end
+
+
+  module DirtyRegion = struct
+    (** tracks dirty extent of the current buffer as a range
+        (in relation to the current buffer)
+
+        we don't track it in relation to the ast due to the
+        markers delimiting each structure item
+        use automatically updating to buffer changes
+    *)
+    type t =
+      | Clean of parse_tree
+      | Dirty of { tree: parse_tree; min: int; max: int; }
+
+    let get_dirty_region = function
+      | Clean _ -> None
+      | Dirty {min;max;_} -> Some (min,max)
+
+    let is_dirty = function
+      | Clean _ -> false
+      | _ -> true
+
+    (** creates a clean dirty region from a parse tree *)
+    let create tree = Clean tree
+
+    (** updates the parse tree to denote the range of the dirty region *)
+    let update (dr:t) (s,e,l: (int * int * int)) : t =
+      let find_bounding_regions (tree:parse_tree) min max =
+        let (MkParseTree items) = tree in
+        match items with
+        | Intf items ->
+          let pre,inv,post = TreeBuilder.calculate_region min max items () in
+          let (min,max) = TreeBuilder.calculate_start_end
+              (fun iterator st -> iterator.signature_item iterator st)
+              min max pre inv post in
+          (Position.to_int min, Position.to_int max)
+        | Impl items ->
+          let pre,inv,post = TreeBuilder.calculate_region min max items () in
+          let (min,max) = TreeBuilder.calculate_start_end
+              (fun iterator st -> iterator.structure_item iterator st)
+              min max pre inv post in
+          (Position.to_int min, Position.to_int max)
+      in
+      match (dr : t) with
+      | Clean tree ->
+        let (min,max) = Position.of_int_exn s, Position.of_int_exn (e + l) in
+        let (min,max) = find_bounding_regions tree min max in
+        Dirty {tree; min;max}
+      | Dirty {tree;min;max;} ->
+        let min,max = Int.min min s, Int.max (max + l) (e + l) in
+        let (min,max) = Position.of_int_exn min, Position.of_int_exn max in
+        let (min,max) = find_bounding_regions tree min max in
+        Dirty {tree; min;max}
+
+
+    (** builds an updated parse_tree (updating any dirty regions) *)
+    let to_tree (dr:t) (_file_type: Filetype.t) : parse_tree =
+      match dr with
+      | Clean tree -> tree
+      | Dirty {tree;min;max;} ->
+        let (MkParseTree items) = tree  in
+        match items with
+        | Impl items ->
+          let items = TreeBuilder.rebuild_impl_parse_tree min max items () in
+          MkParseTree (Impl items)
+        | Intf items ->
+          let items = TreeBuilder.rebuild_intf_parse_tree min max items () in
+          MkParseTree (Intf items)
+  end
+
   (** type of state of plugin - pre-validation *)
   type t = {
     (** file type of the current buffer *)
     file_type: Filetype.t;
     (** parse tree of the current buffer + any dirty regions *)
-    parse_tree: (parse_tree * (DirtyRegion.t option)) option;
+    parse_tree: DirtyRegion.t option;
   }
 
   module Validated = struct
@@ -107,12 +395,26 @@ module State = struct
       parse_tree: parse_tree;
     } 
 
-    let of_state (state: t) =
-
+    (** builds a validated instance of gopcaml-state  -
+        returning a new copy of the state if it has changed*)
+    let of_state (state: t)  =
       let (let+) x f = Option.bind ~f x in
-      let+ (parse_tree, region) = state.parse_tree in
-      assert (Option.is_none region);
-      Some {file_type=state.file_type; parse_tree}
+      let should_store = ref false in
+      let+ parse_tree = match state.parse_tree with
+        | (Some _ as t) -> t
+        | None -> 
+          message "Buffer AST not built - rebuilding...";
+          should_store := true;
+          TreeBuilder.parse_current_buffer state.file_type
+          |> Option.map ~f:DirtyRegion.create
+      in
+      if DirtyRegion.is_dirty parse_tree then should_store := true;
+      let parse_tree = DirtyRegion.to_tree parse_tree state.file_type in
+      if !should_store then
+        Some ({file_type=state.file_type; parse_tree},
+              Some ({file_type=state.file_type; parse_tree = Some (DirtyRegion.create parse_tree)}:t))
+      else
+        Some ({file_type=state.file_type; parse_tree}, None)
 
     type t = s
 
@@ -133,121 +435,6 @@ module State = struct
 
 end
 
-let unwrap_current_buffer current_buffer =
-  match current_buffer with Some v -> v | None -> Current_buffer.get () 
-
-(** builds the abstract tree for the current buffer buffer  *)
-let build_abstract_tree f g h ?current_buffer value =
-  let current_buffer = unwrap_current_buffer current_buffer in
-  let lexbuf = Lexing.from_string ~with_positions:true value in
-  let items =
-    f lexbuf
-    |> List.map ~f:(fun item ->
-        let (iterator,get_result) = Ast_transformer.bounds_iterator () in
-        g iterator item;
-        let ((min_line,min_column), (max_line,max_column)) = get_result () in
-        let start_marker,end_marker = Marker.create (), Marker.create () in
-        let get_position line column = 
-          message (Printf.sprintf "getting position %d %d" line column);
-          Position.of_int_exn (column + 1)
-        in
-        (* Point.goto_line_and_column Line_and_column.{line;column};
-         * Point.get () in *)
-
-        Marker.set start_marker current_buffer (get_position min_line min_column);
-        Marker.set end_marker current_buffer (get_position max_line max_column);
-        State.{start_mark=start_marker;
-               end_mark=end_marker;
-               logical_start = Line_and_column.{line=min_line;column=min_column}; 
-               logical_end = Line_and_column.{line=min_line;column=min_column};
-              },item)
-  in
-  try Either.First (h items) with
-    Syntaxerr.Error e -> Either.Second e
-
-
-let build_implementation_tree =
-  build_abstract_tree
-    Parse.implementation
-    (fun iterator item -> iterator.structure_item iterator item)
-    (fun x -> State.Impl x)
-
-let build_interface_tree =
-  build_abstract_tree
-    Parse.interface
-    (fun iterator item -> iterator.signature_item iterator item)
-    (fun x -> State.Intf x)
-
-
-
-(** determines the file-type of the current file based on its extension *)
-let retrieve_current_file_type ~implementation_extensions ~interface_extensions =
-  Current_buffer.file_name ()
-  |> Option.bind ~f:(fun file_name ->
-      String.split ~on:'.' file_name
-      |> List.last
-      |> Option.bind ~f:(fun ext ->
-          message (Printf.sprintf "extension of %s is %s" file_name ext);
-          message (Printf.sprintf "impls: %s, intfs: %s"
-                     (String.concat ~sep:", " implementation_extensions)
-                     (String.concat ~sep:", " interface_extensions)
-                  );
-
-          if List.mem ~equal:String.(=) implementation_extensions ext
-          then begin
-            message "filetype is implementation";
-            Some State.Filetype.Implementation
-          end
-          else if List.mem ~equal:String.(=) interface_extensions ext
-          then begin
-            message "filetype is interface";
-            Some State.Filetype.Interface
-          end
-          else None
-        )
-    )
-
-
-(** attempts to parse the current buffer according to the inferred file type  *)
-let parse_current_buffer ?start ?end_ file_type =
-  let perform_parse () = 
-  (* retrieve the text for the entire buffer *)
-  let buffer_text =
-    Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
-  let _ = let open State.Filetype in
-    match file_type with
-    | Interface -> message "filetype is interface."
-    | Implementation -> message "filetype is implementation." in
-  message "Building parse tree - may take a while if the file is large...";
-  let start_time = Time.now () in
-  let parse_tree =
-    let map ~f = Either.map ~second:(fun x -> x) ~first:(fun x -> f x) in
-    let open State.Filetype in
-    match file_type with
-    | Implementation -> map ~f:(fun x -> State.MkParseTree x) @@
-      build_implementation_tree buffer_text
-    | Interface -> map ~f:(fun x -> State.MkParseTree x) @@
-      build_interface_tree buffer_text
-  in
-  match parse_tree with
-  | Either.Second e -> 
-    message ("Could not build parse tree: " ^ ExtLib.dump e);
-    None
-  | Either.First tree ->
-    let end_time = Time.now () in
-    message (Printf.sprintf
-               "Successfully built parse tree (%f ms)"
-               ((Time.diff end_time start_time) |> Time.Span.to_ms)
-            );
-    Some tree
-  in
-  try perform_parse ()
-  with Parser.Error -> 
-       message (Printf.sprintf "parsing got error parse.error");
-       None
-     | Syntaxerr.Error err ->
-       message (Printf.sprintf "parsing got error %s" (ExtLib.dump err));
-       None
 
 
 (** sets up the gopcaml-mode state - intended to be called by the startup hook of gopcaml mode*)
@@ -260,7 +447,7 @@ let setup_gopcaml_state
   let implementation_extensions =
     Customization.value implementation_extension_var in
   let file_type =
-    let inferred = retrieve_current_file_type
+    let inferred = State.TreeBuilder.retrieve_current_file_type
         ~implementation_extensions ~interface_extensions in
     match inferred with
     | Some vl -> vl
@@ -270,7 +457,7 @@ let setup_gopcaml_state
                to proceed by defaulting to implementation.";
       State.Filetype.Implementation
   in
-  let parse_tree = parse_current_buffer file_type in
+  let parse_tree = State.TreeBuilder.parse_current_buffer file_type in
   if Option.is_none parse_tree then
     message "Could not build parse tree - please ensure that the \
              buffer is syntactically correct and call \
@@ -278,7 +465,7 @@ let setup_gopcaml_state
              editing.";
   let state = State.{
       file_type = file_type;
-      parse_tree = Option.map ~f:(fun parse_tree -> (parse_tree,None)) parse_tree;
+      parse_tree = Option.map ~f:DirtyRegion.create parse_tree;
     } in
   Buffer_local.set state_var (Some state) current_buffer
 
@@ -325,122 +512,7 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
     | _ -> None
   end
 
-let calculate_region mi ma structure_list _ (* dirty_region *) =
-  let open State in
-  (* first split the list of structure-items by whether they are invalid or not  *)
-  let is_invalid ms2 me2 =
-    let region_contains s1 e1 s2 e2  =
-      let open Position in
-      (((s1 <= s2) && (s2 <= e1)) ||
-       ((s1 <= e2) && (e2 <= e1)) ||
-       ((s2 <= s1) && (s1 <= e2)) ||
-       ((s2 <= e1) && (e1 <= e2))
-      ) in
-    match Marker.position ms2, Marker.position me2 with
-    | Some s2, Some e2 ->
-      region_contains mi ma s2 e2
-    | _ -> true in
-  let (pre, invalid) =
-    List.split_while ~f:(fun ({ start_mark; end_mark; _ }, _) ->
-        not @@ is_invalid start_mark end_mark
-      ) structure_list in
-  let invalid = List.rev invalid in
-  let (post, inb) =
-    List.split_while ~f:(fun ({ start_mark; end_mark; _ }, _) ->
-        not @@ is_invalid start_mark end_mark
-      ) invalid in
-  let post = List.rev post in
-  (pre,inb,post) 
 
-let calculate_start_end f mi ma pre_edit_region invalid_region post_edit_region =
-    let start_region =
-      match List.last pre_edit_region with
-      | Some (_, st) ->
-        let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
-        f iterator st;
-        let ((_,_),(_,c)) = get_bounds () in
-        Position.of_int_exn (c + 1)
-      | None ->
-        match invalid_region with
-        | (_,st) :: _ ->
-          let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
-          f iterator st;
-          let ((_,_),(_,c)) = get_bounds () in
-          Position.of_int_exn (c + 1)
-        | [] -> mi
-    in
-    let end_region =
-      match post_edit_region with
-      | (_, st) :: _ ->
-        let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
-        f iterator st;
-        let ((_,_),(_,c)) = get_bounds () in
-        Position.of_int_exn (c + 1)
-      | [] ->
-        match List.last invalid_region with
-        | Some (_,st) ->
-          let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
-          f iterator st;
-          let ((_,_),(_,c)) = get_bounds () in
-          Position.of_int_exn (c + 1)
-        | None -> ma in
-    (start_region,end_region)
-
-
-
-let rebuild_region f start_region end_region pre_edit_region post_edit_region  =
-  (* first, attempt to parse the exact modified region *)
-  match parse_current_buffer
-          ~start:start_region ~end_:end_region State.Filetype.Interface
-  with
-  | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range @ post_edit_region
-  | None ->
-    (* otherwise, try to reparse from the start to the end *)
-    match parse_current_buffer
-            ~start:start_region State.Filetype.Interface
-    with
-    | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range
-    | None ->
-      (* otherwise, try to reparse from the start to the end *)
-      match parse_current_buffer State.Filetype.Interface
-      with
-      | Some v -> let reparsed_range = f v in reparsed_range
-      | None -> pre_edit_region @ post_edit_region
-
-
-let rebuild_intf_parse_tree structure_list dirty_region =
-  let State.DirtyRegion.{min;max} = dirty_region in
-  let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
-  let (pre_edit_region,invalid_region,post_edit_region) =
-    calculate_region mi ma structure_list dirty_region in
-  let (start_region,end_region) =
-    calculate_start_end
-      (fun iterator st -> iterator.signature_item iterator st)
-      mi ma pre_edit_region invalid_region post_edit_region in
-  let open State in 
-  rebuild_region
-    (fun (MkParseTree tree) -> 
-       match tree with
-       | Impl _ -> assert false
-       | Intf reparsed_range -> reparsed_range)
-    start_region end_region pre_edit_region post_edit_region
-
-let rebuild_impl_parse_tree structure_list dirty_region =
-  let State.DirtyRegion.{min;max} = dirty_region in
-  let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
-  let (pre_edit_region,invalid_region,post_edit_region) =
-    calculate_region mi ma structure_list dirty_region in
-  let (start_region,end_region) =
-    calculate_start_end
-      (fun iterator st -> iterator.structure_item iterator st)
-      mi ma pre_edit_region invalid_region post_edit_region in
-  let open State in 
-  rebuild_region
-    (fun (MkParseTree tree) -> 
-       match tree with
-       | Impl reparsed_range -> reparsed_range
-       | Intf _ -> assert false)
-    start_region end_region pre_edit_region post_edit_region
 
 
 (** updates the dirty region of the parse tree *)
@@ -453,17 +525,10 @@ let update_dirty_region ?current_buffer ~state_var (s,e,l) =
   | None ->
     message "no parse tree not updating dirty region";
     ()                  (* no parse tree, no point tracking dirty regions *)
-  | Some ((MkParseTree tree), Some dr) ->
+  | Some dr ->
     message "dirty region present, removing";
-    let parse_tree =
-      Some (MkParseTree tree, Some (State.DirtyRegion.update dr (s,e,l))) in
-    let state = {state with parse_tree = parse_tree} in
-    Buffer_local.set state_var (Some state) current_buffer
-  | Some (MkParseTree tree, None) ->
-    let dr = State.DirtyRegion.create s e l in
-    let parse_tree =
-      Some (MkParseTree tree, Some (State.DirtyRegion.update dr (s,e,l))) in
-    let state = {state with parse_tree = parse_tree} in
+    let parse_tree = DirtyRegion.update dr (s,e,l) in
+    let state = {state with parse_tree = Some parse_tree} in
     Buffer_local.set state_var (Some state) current_buffer
 
 (** retrieves the dirty region if it exists *)
@@ -473,36 +538,19 @@ let get_dirty_region ?current_buffer ~state_var ()  =
   let state = Buffer_local.get_exn state_var current_buffer in
   match state.parse_tree with
   | None -> None
-  | Some ((MkParseTree _), Some { min; max }) -> Some (min,max)
-  | Some (MkParseTree _, None) -> None
+  | Some dr -> DirtyRegion.get_dirty_region dr
 
 (** retrieves the gopcaml state value, attempting to construct the
     parse tree if it has not already been made *)
 let retrieve_gopcaml_state ?current_buffer ~state_var =
-  let open State in 
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
-  match state.parse_tree with
-  | None ->
-    message "Buffer AST not built - rebuilding...";
-    let parse_tree = parse_current_buffer state.file_type
-                     |> Option.map ~f:(fun parse_tree -> parse_tree,None) in
-    let state = {state with parse_tree = parse_tree} in
-    Buffer_local.set state_var (Some state) current_buffer;
-    State.Validated.of_state state
-  | Some (MkParseTree tree,Some dr) ->
-    let open State.Filetype in
-    let tree = begin match state.file_type,tree  with
-      | Interface, Intf ls -> MkParseTree (Intf (rebuild_intf_parse_tree ls dr))
-      | Implementation, Impl ls -> MkParseTree (Impl (rebuild_impl_parse_tree ls dr))
-      | _ -> assert false
-    end
-    in
-    let state = {state with parse_tree = Some (tree,None)} in
-    Buffer_local.set state_var (Some state) current_buffer;
-    State.Validated.of_state state
-  | ((Some (_,None)  )) ->
-    State.Validated.of_state state
+  let (let+) x f = Option.bind ~f x in
+  let+ (v_state,state) = State.Validated.of_state state in
+  if Option.is_some state then Buffer_local.set state_var state current_buffer;
+  Some v_state
+
+
 
 (** retrieve the points enclosing structure at the current position *)
 let retrieve_enclosing_structure_bounds ?current_buffer ~state_var point =
