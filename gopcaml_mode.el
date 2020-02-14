@@ -111,8 +111,7 @@ removes all existing overlays of type GROUP if present."
 					 (interactive)
 					 (move-gopcaml-zipper
 					  #'gopcaml-move-zipper-right)))
-    gopcaml-map
-    )
+    gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
 
 (defun gopcaml-on-exit-zipper-mode ()
@@ -160,13 +159,10 @@ Cancels itself, if this buffer was killed."
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
   (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
-  (bind-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region gopcaml-mode-map)
   (bind-key (kbd "C-M-z") #'gopcaml-enter-zipper-mode gopcaml-mode-map)
   (setq after-change-functions
 	(cons #'gopcaml-update-dirty-region after-change-functions))
-  (run-with-local-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state)
-  )
-
+  (run-with-local-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state))
 
 (add-hook 'gopcaml-mode-hook #'gopcaml-setup-bindings)
 
