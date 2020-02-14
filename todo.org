@@ -15,13 +15,16 @@
 ** DONE Implement highlight current expression
    CLOSED: [2020-02-14 Fri 13:28]
 *** Iterate through structure item, find nearest enclosing bounds
+** DONE Write zipper for AST
+   CLOSED: [2020-02-14 Fri 18:23]
+** DONE Implement go to parent
+   CLOSED: [2020-02-14 Fri 18:22]
+*** use zipper to move to parent
+** DONE Use set-transient-map to implement a tmm
+   CLOSED: [2020-02-14 Fri 18:22]
 ** TODO Swap code regions at the same level
-*** Write zipper for AST
 *** use zipper to find bounds for both regions
 *** perform swap in emacs using marker to remember the insert positions
-** TODO Implement go to parent
-*** use zipper to move to parent
 ** TODO Implement move into
 ** TODO Implement move outof
-** TODO Use set-transient-map to implement a tmm
 ** TODO Extract binding
