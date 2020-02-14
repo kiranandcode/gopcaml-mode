@@ -38,9 +38,9 @@ module State = struct
     (** elisp type for state of system  *)
     let ty : t Value.Type.t =
       Caml_embed.create_type
-      (Type_equal.Id.create
-         ~name:"gopcaml-zipper-location"
-         Sexplib0.Sexp_conv.sexp_of_opaque)
+        (Type_equal.Id.create
+           ~name:"gopcaml-zipper-location"
+           Sexplib0.Sexp_conv.sexp_of_opaque)
 
   end
 
@@ -164,7 +164,7 @@ module State = struct
     let parse_current_buffer ?start ?end_ file_type =
       (* retrieve the text for the entire buffer *)
       let buffer_text =
-          Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
+        Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
       message (Printf.sprintf "Parsing called on \"%s\"" buffer_text);
       let perform_parse () = 
         let _ = let open Filetype in
@@ -195,13 +195,13 @@ module State = struct
           Some tree
       in
       if not @@ String.is_empty buffer_text then
-      try perform_parse ()
-      with Parser.Error -> 
-        message (Printf.sprintf "parsing got error parse.error");
-        None
-         | Syntaxerr.Error err ->
-           message (Printf.sprintf "parsing got error %s" (ExtLib.dump err));
-           None
+        try perform_parse ()
+        with Parser.Error -> 
+          message (Printf.sprintf "parsing got error parse.error");
+          None
+           | Syntaxerr.Error err ->
+             message (Printf.sprintf "parsing got error %s" (ExtLib.dump err));
+             None
       else match file_type with
         | Interface -> Some (MkParseTree (Intf []))
         | Implementation -> Some (MkParseTree (Impl []))
@@ -442,6 +442,7 @@ let setup_gopcaml_state
       parse_tree = match parse_tree with None -> DirtyRegion.Dirty | Some tree -> DirtyRegion.create tree;
     } in
   Buffer_local.set state_var (Some state) current_buffer
+
 
 (** retrieve the gopcaml state *)
 let get_gopcaml_file_type ?current_buffer ~state_var () =
