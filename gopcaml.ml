@@ -15,6 +15,17 @@ module Variables = struct
       ~type_: (Value.Type.option Gopcaml_state.State.ty)
       ~default_value:(None)
       ()
+
+  let zipper_var = Buffer_local.defvar
+      ("gopcaml-zipper" |> Symbol.intern)
+      [%here]
+      ~docstring:{|
+    Holds the zipper used to enable gopcaml-mode "zipper mode".
+    |}
+      ~type_: (Value.Type.option Gopcaml_state.State.Zipper.ty)
+      ~default_value:(None)
+      ()
+
 end
 
 module Customizable = struct
@@ -140,12 +151,88 @@ let define_functions () =
   defun
     ("gopcaml-ensure-updated-state" |> Symbol.intern)
     [%here]
-    ~docstring:{| Ensure that the gopcaml-state is up to date |}
+    ~docstring:{| Ensure that the gopcaml-state is up to date. |}
     (Returns (Value.Type.unit))
     (let open Defun.Let_syntax in
      let%map_open getter = return @@ Gopcaml_state.retrieve_gopcaml_state ~state_var:Variables.state_var in
      ignore (getter ())
+    );
+  defun
+    ("gopcaml-build-zipper" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Builds an ast zipper around the current point. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" (Position.type_) in
+     Gopcaml_state.build_zipper_enclosing_point 
+       ~state_var:Variables.state_var ~zipper_var:Variables.zipper_var point
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-delete-zipper" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Deletes the zipper if it exists. |}
+    (Returns Value.Type.unit)
+    (let open Defun.Let_syntax in
+     let%map_open op = return @@ Gopcaml_state.delete_zipper ~zipper_var:Variables.zipper_var in
+     op () 
+    );
+  defun
+    ("gopcaml-retrieve-zipper-bounds" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Retrieves the bounds represented by the current zipper. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.retrieve_zipper_bounds ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-move-zipper-left" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Moves the current zipper left and returns its bounds. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.move_zipper_left ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-move-zipper-right" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Moves the current zipper right and returns its bounds. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.move_zipper_right ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-move-zipper-up" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Moves the current zipper up and returns its bounds. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.move_zipper_up ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-move-zipper-down" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Moves the current zipper down and returns its bounds. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.move_zipper_down ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun (a,b) -> [a; b])
     )
+
 
 
 let gopcaml_mode =

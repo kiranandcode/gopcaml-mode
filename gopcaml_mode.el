@@ -84,7 +84,9 @@ removes all existing overlays of type GROUP if present."
   (bind-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region gopcaml-mode-map)
   (setq after-change-functions
 	(cons #'gopcaml-update-dirty-region after-change-functions))
-  (run-with-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state))
+  (set (make-local-variable 'gopcaml-rebuild-timer)
+      (run-with-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state))
+  )
 
 (add-hook 'gopcaml-mode-hook #'gopcaml-setup-bindings)
 

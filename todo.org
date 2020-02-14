@@ -12,7 +12,8 @@
 **** otherwise, reparse file
 **** DONE otherwise drop changes
      CLOSED: [2020-02-14 Fri 12:59]
-** TODO Implement highlight current expression
+** DONE Implement highlight current expression
+   CLOSED: [2020-02-14 Fri 13:28]
 *** Iterate through structure item, find nearest enclosing bounds
 ** TODO Swap code regions at the same level
 *** Write zipper for AST
