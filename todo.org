@@ -26,6 +26,16 @@
    CLOSED: [2020-02-14 Fri 17:05]
 *** use zipper to find bounds for both regions
 *** perform swap in emacs using marker to remember the insert positions
+** TODO Figure out how to include comments in enclosed region
+** TODO add expression and more functionality to zipper
+** TODO make zipper move to nearest enclosing scope on activation
+** TODO integrate with merlin types (i.e print type of current zipper)
+** TODO integrate with merlin (d)estruct/(l)ocate
+** TODO Goto nearest structure item (for C-M-a (tuareg is screwed up))
 ** TODO Implement move into
 ** TODO Implement move outof
 ** TODO Extract binding
+** TODO Highlight regions
+*** Add function to find all repetitions of enclosing expression
+*** add function to highlight all these bounds temporarily
+*** add-on-idle function to run highlight on delay
