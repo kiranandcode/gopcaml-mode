@@ -49,9 +49,9 @@ module State = struct
       message (Printf.sprintf "updating dirty region from %d-%d to %d-%d on  s:%d-%d l:%d"
                  min max
                  (Int.min bs min)
-                 (Int.max (be + l) max)
+                 (Int.max (be + l) (max + l))
                  bs be l);
-      {min = (Int.min bs min); max = (Int.max (be + l) max);}
+      {min = (Int.min bs min); max = (Int.max (be + l) (max + l));}
   end
 
 
