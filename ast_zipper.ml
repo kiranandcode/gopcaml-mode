@@ -14,19 +14,17 @@ type location =
   | MkLocation of t * zipper
 
 let rec t_to_bounds = function
-  (* | Signature_item si ->
-   *   let (iter,get_bounds) = Ast_transformer.bounds_iterator () in
-   *   iter.signature_item iter si;
-   *   let ((_,s),(_,e)) = get_bounds () in
-   *   (s,e)
-   * | Structure_item si ->
-   *   let (iter,get_bounds) = Ast_transformer.bounds_iterator () in
-   *   iter.structure_item iter si;
-   *   let ((_,s),(_,e)) = get_bounds () in
-   *   (s,e) *)
-  | Signature_item { psig_loc = { loc_start; loc_end;_ }; _ } 
-  | Structure_item { pstr_loc = { loc_start; loc_end;_ }; _ } ->
-    (loc_start.pos_cnum,loc_end.pos_cnum)
+  | Signature_item si ->
+    let (iter,get) = Ast_transformer.bounds_iterator () in
+    iter.signature_item iter si;
+    get ()
+  | Structure_item si ->
+    let (iter,get) = Ast_transformer.bounds_iterator () in
+    iter.structure_item iter si;
+    get ()
+  (* | Signature_item { psig_loc = { loc_start; loc_end;_ }; _ } 
+   * | Structure_item { pstr_loc = { loc_start; loc_end;_ }; _ } ->
+   *   (loc_start.pos_cnum,loc_end.pos_cnum) *)
   (* if its a sequence, take the union *)
   | Sequence (left,elem,right) ->
     List.map ~f:t_to_bounds (left @ right)
@@ -39,9 +37,14 @@ let to_bounds (MkLocation (current,_)) =
 (** updates the bounds of the zipper by a fixed offset *)
 let update_bounds ~(diff:int) state =
   let mapper = {Ast_mapper.default_mapper with location = (fun _ { loc_start; loc_end; loc_ghost } ->
+      Ecaml.message (Printf.sprintf "updating %d to %d" loc_start.pos_cnum (loc_start.pos_cnum + diff));
       Location.{
-        loc_start={loc_start with pos_cnum = loc_start.pos_cnum + diff};
-        loc_end={loc_end with pos_cnum = loc_end.pos_cnum + diff};
+        loc_start={loc_start with pos_cnum = (if loc_start.pos_cnum = -1
+                                              then -1
+                                              else loc_start.pos_cnum + diff)};
+        loc_end={loc_end with pos_cnum = (if loc_end.pos_cnum = -1
+                                          then -1
+                                          else loc_end.pos_cnum + diff)};
         loc_ghost=loc_ghost}
     ) } in
   let rec update state = 
@@ -98,10 +101,17 @@ let calculate_swap_bounds (MkLocation (current,parent)) =
   | Node { below=l::left; parent; above } ->
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
-    let current_diff = fst prev_bounds - fst current_bounds in
     let prev_diff = snd current_bounds - snd prev_bounds in
-    Some (current_bounds, prev_bounds, MkLocation ((update_bounds ~diff:prev_diff l), (Node {
-        below=(update_bounds ~diff:current_diff current)::left; parent; above
-      })))
+    let current_diff = fst prev_bounds - fst current_bounds in
+    Some (
+      current_bounds,
+      prev_bounds,
+      MkLocation (
+        (update_bounds ~diff:prev_diff l),
+        (Node {
+            below=(update_bounds ~diff:current_diff current)::left;
+            parent;
+            above=above
+          })))
   | _ -> None
 

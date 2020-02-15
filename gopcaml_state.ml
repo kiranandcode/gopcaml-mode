@@ -94,21 +94,21 @@ module State = struct
         |> List.map ~f:(fun item ->
             let (iterator,get_result) = Ast_transformer.bounds_iterator () in
             g iterator item;
-            let ((min_line,min_column), (max_line,max_column)) = get_result () in
+            let (min_column, max_column) = get_result () in
             let start_marker,end_marker = Marker.create (), Marker.create () in
-            let get_position line column = 
-              message (Printf.sprintf "getting position %d %d" line column);
+            let get_position column = 
+              message (Printf.sprintf "getting position %d" column);
               Position.of_int_exn column
             in
             (* Point.goto_line_and_column Line_and_column.{line;column};
              * Point.get () in *)
 
-            Marker.set start_marker current_buffer (get_position min_line min_column);
-            Marker.set end_marker current_buffer (get_position max_line max_column);
+            Marker.set start_marker current_buffer (get_position min_column);
+            Marker.set end_marker current_buffer (get_position max_column);
             {start_mark=start_marker;
              end_mark=end_marker;
-             logical_start = Line_and_column.{line=min_line;column=min_column}; 
-             logical_end = Line_and_column.{line=min_line;column=min_column};
+             logical_start = Line_and_column.{line=0;column=min_column}; 
+             logical_end = Line_and_column.{line=0;column=max_column};
             },item)
       in
       if not @@ String.is_empty value then
@@ -165,7 +165,6 @@ module State = struct
       (* retrieve the text for the entire buffer *)
       let buffer_text =
         Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
-      message (Printf.sprintf "Parsing called on \"%s\"" buffer_text);
       let perform_parse () = 
         let _ = let open Filetype in
           match file_type with
@@ -238,14 +237,14 @@ module State = struct
         | Some (_, st) ->
           let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
           f iterator st;
-          let ((_,_),(_,c)) = get_bounds () in
+          let (_,c) = get_bounds () in
           Position.of_int_exn c
         | None ->
           match invalid_region with
           | (_,st) :: _ ->
             let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
             f iterator st;
-            let ((_,_),(_,c)) = get_bounds () in
+            let (_,c) = get_bounds () in
             Position.of_int_exn c
           | [] -> mi
       in
@@ -254,14 +253,14 @@ module State = struct
         | (_, st) :: _ ->
           let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
           f iterator st;
-          let ((_,_),(_,c)) = get_bounds () in
+          let (_,c) = get_bounds () in
           Position.of_int_exn c
         | [] ->
           match List.last invalid_region with
           | Some (_,st) ->
             let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
             f iterator st;
-            let ((_,_),(_,c)) = get_bounds () in
+            let (_,c) = get_bounds () in
             Position.of_int_exn c
           | None -> ma in
       (start_region,end_region)
@@ -513,6 +512,16 @@ let apply_iterator (item: State.parse_item) iter f  =
   end;
   f ()
 
+(** returns a tuple of points enclosing the current expression *)
+let find_enclosing_bounds (state: State.Validated.t) ~point =
+  find_enclosing_structure state point
+  |> Option.bind ~f:begin fun expr ->
+    (* message (Printf.sprintf "enclosing structure: %s"(ExtLib.dump expr)); *)
+    let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
+    apply_iterator expr iter getter
+  |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
+  end
+
 (** returns a tuple of points enclosing the current structure *)
 let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
   find_enclosing_structure state point
@@ -523,16 +532,6 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
     match Marker.position region.start_mark,Marker.position region.end_mark with
     | Some s, Some e -> Some (Position.add s 1, Position.add e 1)
     | _ -> None
-  end
-
-(** returns a tuple of points enclosing the current expression *)
-let find_enclosing_bounds (state: State.Validated.t) ~point =
-  find_enclosing_structure state point
-  |> Option.bind ~f:begin fun expr ->
-    message (Printf.sprintf "enclosing structure: %s"(ExtLib.dump expr));
-    let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
-    apply_iterator expr iter getter
-  |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
   end
 
 

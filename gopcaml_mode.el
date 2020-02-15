@@ -83,20 +83,25 @@ removes all existing overlays of type GROUP if present."
 (defvar-local gopcaml-zipper-overlay nil
   "Overlay used to highlight the zipper region.")
 
+(defvar-local gopcaml-update-timer nil
+  "Timer object used to periodically update gopcaml state.")
+
 (defun move-gopcaml-zipper (zipper-fn)
   "Move the zipper using ZIPPER-FN."
-  (let ((area (car (funcall zipper-fn))) start end)
+  (let ((area (car (funcall zipper-fn))) start end (buf-name (buffer-name)))
     (when area
       (setq start (car area))
       (setq end (cadr area))
       (move-overlay gopcaml-zipper-overlay start end)
-      (goto-char start)
-      )))
+      (let ((wind-start (window-start)) (wind-end (window-end)))
+	(if (and wind-start wind-end (< wind-start start wind-end))
+		   (set-window-point (get-buffer-window buf-name) start)
+	  (goto-char start))
+	  ))))
 
-(defun gopcaml-zipper-transpose ()
-  "Transpose two elements at the same level."
-  (interactive)
-  (let ((area (car (gopcaml-begin-zipper-swap)))
+(defun gopcaml-zipper-swap (transform-fn)
+  "Swap current text using output from zipper function TRANSFORM-FN."
+  (let ((area (car (funcall transform-fn)))
 	region1-start
 	region1-end
 	region2-start
@@ -127,6 +132,11 @@ removes all existing overlays of type GROUP if present."
       (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
       (goto-char (car area))
       )))
+
+(defun gopcaml-zipper-transpose ()
+  "Transpose two elements at the same level."
+  (interactive)
+  (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap))
 
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
@@ -193,6 +203,8 @@ Cancels itself, if this buffer was killed."
     (fset fns fn)
     fn))
 
+
+
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
@@ -200,13 +212,24 @@ Cancels itself, if this buffer was killed."
   (bind-key (kbd "C-M-z") #'gopcaml-enter-zipper-mode gopcaml-mode-map)
   (setq after-change-functions
 	(cons #'gopcaml-update-dirty-region after-change-functions))
-  (run-with-local-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state))
+  (setq gopcaml-update-timer
+	(run-with-local-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state)))
+
+(defun gopcaml-teardown-bindings ()
+  "Teardown bindings for gopcaml-mode."
+  (message "tearing down gopcaml-bindings")
+  (setq after-change-functions
+	(remove #'gopcaml-update-dirty-region after-change-functions))
+  (cancel-timer gopcaml-update-timer)
+  (setq gopcaml-update-timer nil))
 
 (add-hook 'gopcaml-mode-hook #'gopcaml-setup-bindings)
 
 (local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
 (local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
 
+
+;; temporary code to test gopcaml-mode
 (find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/gopcaml_state.ml")
 (gopcaml-mode)
 (gopcaml-setup-bindings)
