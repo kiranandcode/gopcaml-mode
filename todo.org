@@ -32,10 +32,11 @@
    CLOSED: [2020-02-15 Sat 11:10]
 ** DONE make zipper move to nearest enclosing scope on activation
    CLOSED: [2020-02-15 Sat 12:05]
+** DONE integrate with merlin types (i.e print type of current zipper)
+   CLOSED: [2020-02-15 Sat 12:20]
 ** TODO add expression and more functionality to zipper
 ** TODO Goto nearest structure item (for C-M-a (tuareg is screwed up))
 
-** TODO integrate with merlin types (i.e print type of current zipper)
 ** TODO integrate with merlin (d)estruct/(l)ocate
 ** TODO Implement move into
 ** TODO Implement move outof
