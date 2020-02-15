@@ -22,9 +22,6 @@ let rec t_to_bounds = function
     let (iter,get) = Ast_transformer.bounds_iterator () in
     iter.structure_item iter si;
     get ()
-  (* | Signature_item { psig_loc = { loc_start; loc_end;_ }; _ } 
-   * | Structure_item { pstr_loc = { loc_start; loc_end;_ }; _ } ->
-   *   (loc_start.pos_cnum,loc_end.pos_cnum) *)
   (* if its a sequence, take the union *)
   | Sequence (left,elem,right) ->
     List.map ~f:t_to_bounds (left @ right)
@@ -37,7 +34,6 @@ let t_list_to_bounds ls =
     |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(t_to_bounds h)
     |> fun x -> Some x
   | _ -> None
-  
 
 (** converts a zipper to the bounds of the current item *)
 let to_bounds (MkLocation (current,_)) = 
@@ -94,7 +90,6 @@ let go_down (MkLocation (current,parent)) =
     Some (MkLocation (focused, Node {below=left;parent;above=right;}))
   | _ -> None
 
-
 let go_left (MkLocation (current,parent)) =
   match parent with
   | Node { below=l::left; parent; above } ->
@@ -107,6 +102,34 @@ let go_right (MkLocation (current,parent)) =
     Some (MkLocation (r, Node {below=current::below; parent; above=right}))
   | _ -> None
 
+(** deletes the current element of the zipper  *)
+let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
+  let current_bounds =  t_to_bounds current in
+  let diff = fst current_bounds - snd current_bounds in
+  let update_bounds = update_bounds ~diff in
+  (* update parent *)
+  let rec update_parent parent = match parent with
+    | Top -> Top
+    | Node {below;parent;above} ->
+      let above = List.map ~f:update_bounds above in
+      let parent = update_parent parent in 
+      Node {below; parent; above} in
+  (* returns a zipper with the first element removed *)
+  let rec remove_current  (MkLocation (current,parent)) = 
+  match parent with
+  | Top -> None
+  | Node {below; parent=up; above=r::right} ->
+    let r = update_bounds r in
+    let right = List.map ~f:update_bounds right in
+    let up = update_parent up in
+    Some (MkLocation(r, Node{below;parent=up;above=right}))
+  | Node {below=l::left; parent=up; above=right} ->
+    let right = List.map ~f:update_bounds right in
+    let up = update_parent up in
+    Some (MkLocation(l, Node{below=left;parent=up;above=right}))
+  | Node {below=[]; parent=up; above=[]} ->
+    remove_current (MkLocation (current, up)) in
+  remove_current loc |> Option.map ~f:(fun v -> v,current_bounds) 
 
 (** swaps two elements at the same level, returning the new location  *)
 let calculate_swap_bounds (MkLocation (current,parent)) =
@@ -128,7 +151,6 @@ let calculate_swap_bounds (MkLocation (current,parent)) =
           }))))
   | _ -> None
 
-
 (** swaps two elements forward at the same level, returning the new location  *)
 let calculate_swap_forward_bounds (MkLocation (current,parent)) =
   match parent with
@@ -149,7 +171,6 @@ let calculate_swap_forward_bounds (MkLocation (current,parent)) =
           })))
   | _ -> None
 
-
 (** swaps two elements forward at the same level, returning the new location  *)
 let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
   match parent with
@@ -169,4 +190,3 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
             above=(update_bounds ~diff:prev_diff l)::right;
           })))
   | _ -> None
-

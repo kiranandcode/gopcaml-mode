@@ -88,21 +88,23 @@ removes all existing overlays of type GROUP if present."
 
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
+  (interactive)
   (when gopcaml-zipper-overlay
     (let ((start (overlay-start gopcaml-zipper-overlay))
 	  (end (overlay-end gopcaml-zipper-overlay)))
       (lexical-let*
-	  ((substring  (buffer-substring-no-properties start end))
-	   (on-success (lambda (type) (merlin--type-display nil type nil)))
-	   (on-error   (lambda (err)
-			 (let ((msg (assoc 'message err))
-			       (typ (assoc 'type err)))
-			   (cond ((and typ (equal (cdr typ) "parser"))
-				  (message "Error: the content of the region failed to parse."))
-				 (msg (message "Error: %s" (cdr msg)))
-				 (t
-				  (message "Unexpected error")))))))
-	(merlin--type-expression substring on-success on-error)))))
+      	  ((substring  (buffer-substring-no-properties start end))
+      	   (on-success (lambda (type) (merlin--type-display nil type nil)))
+      	   (on-error   (lambda (err)
+      			 (let ((msg (assoc 'message err))
+      			       (typ (assoc 'type err)))
+      			   (cond ((and typ (equal (cdr typ) "parser"))
+      				  (message "Error: the content of the region failed to parse."))
+      				 (msg (message "Error: %s" (cdr msg)))
+      				 (t
+      				  (message "Unexpected error")))))))
+      	(merlin--type-expression substring on-success on-error))
+      )))
 
 (defun move-gopcaml-zipper (zipper-fn)
   "Move the zipper using ZIPPER-FN."
@@ -115,15 +117,30 @@ removes all existing overlays of type GROUP if present."
 	(if (and wind-start wind-end (< wind-start start wind-end))
 		   (set-window-point (get-buffer-window buf-name) start)
 	  (goto-char start))
-	(gopcaml-zipper-type)
 	  ))))
+
+(defun gopcaml-zipper-kill-region ()
+  "Kill the current item using the zipper."
+  (interactive)
+  (let ((area (car (gopcaml-begin-zipper-delete))) start end (buf-name (buffer-name)))
+    (when area
+      (setq start (car area))
+      (setq end (cadr area))
+      (kill-region start end)
+      (setq area (car (gopcaml-retrieve-zipper-bounds)))
+      (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+      (goto-char (car area)))))
 
 (defun gopcaml-copy-region ()
   "Copy region encompassed by the zipper."
   (when gopcaml-zipper-overlay
     (let ((start (overlay-start gopcaml-zipper-overlay))
-	  (end (overlay-end gopcaml-zipper-overlay)))
-      (copy-region-as-kill start end))))
+	  (end (overlay-end gopcaml-zipper-overlay))
+	  text)
+      (setq text (buffer-substring-no-properties start end))
+      (copy-region-as-kill start end)
+      (message "copied \"%s\" to kill-ring" (truncate-string-to-width
+					 text 40 nil nil t)))))
 
 (defun gopcaml-zipper-swap (transform-fn)
   "Swap current text using output from zipper function TRANSFORM-FN."
@@ -192,6 +209,10 @@ removes all existing overlays of type GROUP if present."
 					 (interactive)
 					 (move-gopcaml-zipper
 					  #'gopcaml-move-zipper-right)))
+    (define-key gopcaml-map (kbd "k") '(lambda ()
+					 (interactive)
+					 (move-gopcaml-zipper
+					  #'gopcaml-zipper-kill-region)))
     (define-key gopcaml-map (kbd "w") '(lambda ()
 					 (interactive)
 					 (gopcaml-copy-region)))
@@ -204,6 +225,9 @@ removes all existing overlays of type GROUP if present."
     (define-key gopcaml-map (kbd "t") '(lambda ()
 					 (interactive)
 					 (gopcaml-zipper-transpose)))
+    (define-key gopcaml-map (kbd "T") '(lambda ()
+					 (interactive)
+					 (gopcaml-zipper-type)))
     gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
 
@@ -230,14 +254,15 @@ removes all existing overlays of type GROUP if present."
       (set-transient-map
        gopcaml-zipper-mode-map
        t #'gopcaml-on-exit-zipper-mode)
-      (gopcaml-zipper-type)
       )))
 
 ;; graciously taken from https://emacs.stackexchange.com/questions/12532/buffer-local-idle-timer
 (defun run-with-local-idle-timer (secs repeat function &rest args)
-  "Like `run-with-idle-timer', but always runs in the `current-buffer'.
-
-Cancels itself, if this buffer was killed."
+  "`run-with-idle-timer' but always run in the `current-buffer'.
+Cancels itself, if this buffer was killed.
+SECS is the periodicity of the timer.
+REPEAT dictates whether the timer should be called repeatedly.
+FUNCTION is the function to call on timer"
   (let* (;; Chicken and egg problem.
          (fns (make-symbol "local-idle-timer"))
          (timer (apply 'run-with-idle-timer secs repeat fns args))
@@ -248,8 +273,6 @@ Cancels itself, if this buffer was killed."
                     (apply (function ,function) args))))))
     (fset fns fn)
     fn))
-
-
 
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
@@ -271,8 +294,8 @@ Cancels itself, if this buffer was killed."
 
 (add-hook 'gopcaml-mode-hook #'gopcaml-setup-bindings)
 
-(local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
-(local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
+;; (local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
+;; (local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
 
 
 ;; temporary code to test gopcaml-mode

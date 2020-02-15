@@ -1,7 +1,6 @@
 open Core
 open Ecaml
 
-
 module State = struct
 
   module Filetype = struct
@@ -680,3 +679,13 @@ let zipper_swap_forwards = abstract_zipper_update Ast_zipper.calculate_swap_forw
 
 (** attempts to move the current expression backwards *)
 let zipper_swap_backwards = abstract_zipper_update Ast_zipper.calculate_swap_backwards_bounds  
+
+(** deletes the current item using the zipper, returning the region to be swapped *)
+let zipper_delete_current ?current_buffer ~zipper_var () =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:Ast_zipper.calculate_zipper_delete_bounds
+  |> Option.map ~f:(fun (zipper,(l1,l2)) ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
+    )

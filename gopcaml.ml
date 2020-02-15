@@ -267,7 +267,18 @@ let define_functions () =
        return @@ Gopcaml_state.zipper_swap_backwards ~zipper_var:Variables.zipper_var in
      op ()
      |> Option.map ~f:(fun ((a,b),(c,d)) -> [a; b;c;d])
-    )
+    );
+  defun
+    ("gopcaml-begin-zipper-delete" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Updates the current zipper to delete the current element - returning
+    the range to be deleted. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.zipper_delete_current ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun ((a,b)) -> [a; b]))
 
 let gopcaml_mode =
   Major_mode.define_derived_mode
