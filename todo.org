@@ -28,10 +28,13 @@
 *** perform swap in emacs using marker to remember the insert positions
 ** DONE Figure out how to include comments in enclosed region
    CLOSED: [2020-02-15 Sat 18:06]
-** TODO Implement move up move down (rather than transpose) 
+** DONE Implement move up move down (rather than transpose) 
+   CLOSED: [2020-02-15 Sat 11:10]
+** DONE make zipper move to nearest enclosing scope on activation
+   CLOSED: [2020-02-15 Sat 12:05]
 ** TODO add expression and more functionality to zipper
 ** TODO Goto nearest structure item (for C-M-a (tuareg is screwed up))
-** TODO make zipper move to nearest enclosing scope on activation
+
 ** TODO integrate with merlin types (i.e print type of current zipper)
 ** TODO integrate with merlin (d)estruct/(l)ocate
 ** TODO Implement move into

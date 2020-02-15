@@ -30,6 +30,15 @@ let rec t_to_bounds = function
     List.map ~f:t_to_bounds (left @ right)
     |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(t_to_bounds elem)
 
+let t_list_to_bounds ls =
+  match ls with
+  | h :: t ->
+    List.map ~f:t_to_bounds t
+    |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(t_to_bounds h)
+    |> fun x -> Some x
+  | _ -> None
+  
+
 (** converts a zipper to the bounds of the current item *)
 let to_bounds (MkLocation (current,_)) = 
   t_to_bounds current
@@ -66,6 +75,11 @@ let make_zipper_impl left impl right =
   let right = List.map ~f:(fun x -> Structure_item x) right in
   let impl = Structure_item impl in
   MkLocation (Sequence (List.rev left, impl, right), Top)
+
+let rec move_zipper_to_point point = function
+  | MkLocation (Sequence (l,c,r), parent) ->
+    move_zipper_to_point point (MkLocation (c, Node {below=l;parent; above=r;}))
+  | v -> v
 
 let go_up (MkLocation (current,parent)) =
   match parent with

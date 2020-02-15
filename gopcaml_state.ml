@@ -475,7 +475,8 @@ let build_zipper (state: State.Validated.t) point =
     | (_,current) :: right -> Some (remove_region left,current, remove_region right)
     | [] -> None
   in
-  match state.parse_tree with 
+  let point = Position.to_int point in
+  begin match state.parse_tree with 
   | (State.MkParseTree (State.Impl si_list)) ->
     find_enclosing_expression si_list
     |> Option.map ~f:(fun (left,current,right) ->
@@ -483,7 +484,9 @@ let build_zipper (state: State.Validated.t) point =
   | (State.MkParseTree (State.Intf si_list)) ->
     find_enclosing_expression si_list
     |> Option.map ~f:(fun (left,current,right) ->
-        Ast_zipper.make_zipper_intf left current right)
+        Ast_zipper.make_zipper_intf left current right
+      )
+  end |> Option.map ~f:(Ast_zipper.move_zipper_to_point point)
 
 
 let find_enclosing_structure (state: State.Validated.t) point : State.parse_item option =
@@ -582,7 +585,7 @@ let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
     |> Option.bind ~f:(fun state ->
-        let zipper = build_zipper state point in
+      let zipper = build_zipper state point in
         Buffer_local.set zipper_var zipper current_buffer;
         zipper)
   |> Option.map ~f:Ast_zipper.to_bounds

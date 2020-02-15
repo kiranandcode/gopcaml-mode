@@ -86,6 +86,24 @@ removes all existing overlays of type GROUP if present."
 (defvar-local gopcaml-update-timer nil
   "Timer object used to periodically update gopcaml state.")
 
+(defun gopcaml-zipper-type ()
+  "Type region enclosed by zipper."
+  (when gopcaml-zipper-overlay
+    (let ((start (overlay-start gopcaml-zipper-overlay))
+	  (end (overlay-end gopcaml-zipper-overlay)))
+      (lexical-let*
+	  ((substring  (buffer-substring-no-properties start end))
+	   (on-success (lambda (type) (merlin--type-display nil type nil)))
+	   (on-error   (lambda (err)
+			 (let ((msg (assoc 'message err))
+			       (typ (assoc 'type err)))
+			   (cond ((and typ (equal (cdr typ) "parser"))
+				  (message "Error: the content of the region failed to parse."))
+				 (msg (message "Error: %s" (cdr msg)))
+				 (t
+				  (message "Unexpected error")))))))
+	(merlin--type-expression substring on-success on-error)))))
+
 (defun move-gopcaml-zipper (zipper-fn)
   "Move the zipper using ZIPPER-FN."
   (let ((area (car (funcall zipper-fn))) start end (buf-name (buffer-name)))
@@ -97,7 +115,15 @@ removes all existing overlays of type GROUP if present."
 	(if (and wind-start wind-end (< wind-start start wind-end))
 		   (set-window-point (get-buffer-window buf-name) start)
 	  (goto-char start))
+	(gopcaml-zipper-type)
 	  ))))
+
+(defun gopcaml-copy-region ()
+  "Copy region encompassed by the zipper."
+  (when gopcaml-zipper-overlay
+    (let ((start (overlay-start gopcaml-zipper-overlay))
+	  (end (overlay-end gopcaml-zipper-overlay)))
+      (copy-region-as-kill start end))))
 
 (defun gopcaml-zipper-swap (transform-fn)
   "Swap current text using output from zipper function TRANSFORM-FN."
@@ -166,6 +192,9 @@ removes all existing overlays of type GROUP if present."
 					 (interactive)
 					 (move-gopcaml-zipper
 					  #'gopcaml-move-zipper-right)))
+    (define-key gopcaml-map (kbd "w") '(lambda ()
+					 (interactive)
+					 (gopcaml-copy-region)))
     (define-key gopcaml-map (kbd "N") '(lambda ()
 					 (interactive)
 					 (gopcaml-zipper-move-forwards)))
@@ -201,6 +230,7 @@ removes all existing overlays of type GROUP if present."
       (set-transient-map
        gopcaml-zipper-mode-map
        t #'gopcaml-on-exit-zipper-mode)
+      (gopcaml-zipper-type)
       )))
 
 ;; graciously taken from https://emacs.stackexchange.com/questions/12532/buffer-local-idle-timer
