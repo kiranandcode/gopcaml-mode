@@ -138,6 +138,16 @@ removes all existing overlays of type GROUP if present."
   (interactive)
   (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap))
 
+(defun gopcaml-zipper-move-forwards ()
+  "Move current element forwards at the same level."
+  (interactive)
+  (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-forwards))
+
+(defun gopcaml-zipper-move-backwards ()
+  "Move current element backwards at the same level."
+  (interactive)
+  (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-backwards))
+
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
     (define-key gopcaml-map (kbd "e") '(lambda ()
@@ -156,6 +166,12 @@ removes all existing overlays of type GROUP if present."
 					 (interactive)
 					 (move-gopcaml-zipper
 					  #'gopcaml-move-zipper-right)))
+    (define-key gopcaml-map (kbd "N") '(lambda ()
+					 (interactive)
+					 (gopcaml-zipper-move-forwards)))
+    (define-key gopcaml-map (kbd "P") '(lambda ()
+					 (interactive)
+					 (gopcaml-zipper-move-backwards)))
     (define-key gopcaml-map (kbd "t") '(lambda ()
 					 (interactive)
 					 (gopcaml-zipper-transpose)))

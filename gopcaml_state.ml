@@ -658,15 +658,22 @@ let move_zipper_up ?current_buffer ~zipper_var () =
     )
   |>  abstract_zipper_to_bounds  
 
-(** attempts to swap the zipper *)
-let zipper_swap ?current_buffer ~zipper_var () =
+(** attempts "update" the buffer using the zipper, returning the two regions to be swapped *)
+let abstract_zipper_update f ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_zipper ~current_buffer ~zipper_var
-  |> Option.bind ~f:Ast_zipper.calculate_swap_bounds
+  |> Option.bind ~f
   |> Option.map ~f:(fun ((l1,l2),(r1,r2),zipper) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1)),
       (Position.of_int_exn (r1 + 1),Position.of_int_exn (r2 + 1))
     )
 
-  
+(** attempts to swap the zipper *)
+let zipper_swap = abstract_zipper_update Ast_zipper.calculate_swap_bounds
+
+(** attempts to move the current expression forwards *)
+let zipper_swap_forwards = abstract_zipper_update Ast_zipper.calculate_swap_forward_bounds
+
+(** attempts to move the current expression backwards *)
+let zipper_swap_backwards = abstract_zipper_update Ast_zipper.calculate_swap_backwards_bounds  

@@ -37,7 +37,6 @@ let to_bounds (MkLocation (current,_)) =
 (** updates the bounds of the zipper by a fixed offset *)
 let update_bounds ~(diff:int) state =
   let mapper = {Ast_mapper.default_mapper with location = (fun _ { loc_start; loc_end; loc_ghost } ->
-      Ecaml.message (Printf.sprintf "updating %d to %d" loc_start.pos_cnum (loc_start.pos_cnum + diff));
       Location.{
         loc_start={loc_start with pos_cnum = (if loc_start.pos_cnum = -1
                                               then -1
@@ -95,10 +94,52 @@ let go_right (MkLocation (current,parent)) =
   | _ -> None
 
 
-(** swaps two elements at the same level, returnig the new location  *)
+(** swaps two elements at the same level, returning the new location  *)
 let calculate_swap_bounds (MkLocation (current,parent)) =
   match parent with
-  | Node { below=l::left; parent; above } ->
+  | Node { below=l::left; parent; above=r::right; } ->
+    let current_bounds =  t_to_bounds current in
+    let prev_bounds = t_to_bounds l in
+    let prev_diff = snd current_bounds - snd prev_bounds in
+    let current_diff = fst prev_bounds - fst current_bounds in
+    Some (
+      current_bounds,
+      prev_bounds,
+      (MkLocation (
+        r,
+        (Node {
+            below=(update_bounds ~diff:prev_diff l)::(update_bounds ~diff:current_diff current)::left;
+            parent;
+            above=right
+          }))))
+  | _ -> None
+
+
+(** swaps two elements forward at the same level, returning the new location  *)
+let calculate_swap_forward_bounds (MkLocation (current,parent)) =
+  match parent with
+  | Node { below=left; parent; above=r::right; } ->
+    let current_bounds =  t_to_bounds current in
+    let prev_bounds = t_to_bounds r in
+    let prev_diff = fst current_bounds - fst prev_bounds in
+    let current_diff = snd prev_bounds - snd current_bounds in
+    Some (
+      current_bounds,
+      prev_bounds,
+      MkLocation (
+        (update_bounds ~diff:current_diff current),
+        (Node {
+            below=(update_bounds ~diff:prev_diff r)::left;
+            parent;
+            above=right;
+          })))
+  | _ -> None
+
+
+(** swaps two elements forward at the same level, returning the new location  *)
+let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
+  match parent with
+  | Node { below=l::left; parent; above=right; } ->
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
     let prev_diff = snd current_bounds - snd prev_bounds in
@@ -107,11 +148,11 @@ let calculate_swap_bounds (MkLocation (current,parent)) =
       current_bounds,
       prev_bounds,
       MkLocation (
-        (update_bounds ~diff:prev_diff l),
+        (update_bounds ~diff:current_diff current),
         (Node {
-            below=(update_bounds ~diff:current_diff current)::left;
+            below=left;
             parent;
-            above=above
+            above=(update_bounds ~diff:prev_diff l)::right;
           })))
   | _ -> None
 
