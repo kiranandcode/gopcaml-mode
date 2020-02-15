@@ -14,6 +14,16 @@ type location =
   | MkLocation of t * zipper
 
 let rec t_to_bounds = function
+  (* | Signature_item si ->
+   *   let (iter,get_bounds) = Ast_transformer.bounds_iterator () in
+   *   iter.signature_item iter si;
+   *   let ((_,s),(_,e)) = get_bounds () in
+   *   (s,e)
+   * | Structure_item si ->
+   *   let (iter,get_bounds) = Ast_transformer.bounds_iterator () in
+   *   iter.structure_item iter si;
+   *   let ((_,s),(_,e)) = get_bounds () in
+   *   (s,e) *)
   | Signature_item { psig_loc = { loc_start; loc_end;_ }; _ } 
   | Structure_item { pstr_loc = { loc_start; loc_end;_ }; _ } ->
     (loc_start.pos_cnum,loc_end.pos_cnum)

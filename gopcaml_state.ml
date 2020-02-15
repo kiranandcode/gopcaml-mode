@@ -453,12 +453,12 @@ let get_gopcaml_file_type ?current_buffer ~state_var () =
 
 
 (** update the file type of the variable   *)
-[@@@warning "-23"]
 let set_gopcaml_file_type ?current_buffer ~state_var file_type =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
   let state = State.{state with parse_tree=Dirty; file_type = file_type } in
   Buffer_local.set state_var (Some state) current_buffer
+[@@warning "-23"]
 
 let build_zipper (state: State.Validated.t) point =
   let open State in
@@ -529,6 +529,7 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
 let find_enclosing_bounds (state: State.Validated.t) ~point =
   find_enclosing_structure state point
   |> Option.bind ~f:begin fun expr ->
+    message (Printf.sprintf "enclosing structure: %s"(ExtLib.dump expr));
     let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
     apply_iterator expr iter getter
   |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
@@ -604,7 +605,7 @@ let delete_zipper ?current_buffer ~zipper_var () =
 let abstract_zipper_to_bounds zipper = zipper
   |> Option.map ~f:Ast_zipper.to_bounds
   |> Option.map ~f:(fun (st,ed) ->
-      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 0)
+      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
     )
 
 (** retrieve bounds for current zipper *)
