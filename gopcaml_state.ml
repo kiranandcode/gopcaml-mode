@@ -40,7 +40,6 @@ module State = struct
         (Type_equal.Id.create
            ~name:"gopcaml-zipper-location"
            Sexplib0.Sexp_conv.sexp_of_opaque)
-
   end
 
 
@@ -458,34 +457,85 @@ let set_gopcaml_file_type ?current_buffer ~state_var file_type =
   Buffer_local.set state_var (Some state) current_buffer
 [@@warning "-23"]
 
-let build_zipper (state: State.Validated.t) point =
+(** from a list of expressions, finds the enclosing one  *)
+let find_enclosing_expression list point =
   let open State in
-  let open Validated in
-  let find_enclosing_expression list = 
-    let (left,remain) = List.split_while list ~f:(fun (region,_) ->
-        let (let+) v f = Option.bind ~f v in
-        let contains = 
-          let+ start_position = Marker.position region.start_mark in
-          let+ end_position = Marker.position region.end_mark in           
-          Some (not @@ Position.between ~low:start_position ~high:end_position point) in
-        Option.value ~default:true contains) in
-    let remove_region = List.map ~f:(fun (_,b) -> b) in
-    match remain with
-    | (_,current) :: right -> Some (remove_region left,current, remove_region right)
-    | [] -> None
+  let (left,remain) = List.split_while list ~f:(fun (region,_) ->
+      let (let+) v f = Option.bind ~f v in
+      let contains = 
+        let+ start_position = Marker.position region.start_mark in
+        let+ end_position = Marker.position region.end_mark in           
+        Some (not @@ Position.between ~low:start_position ~high:end_position point) in
+      Option.value ~default:true contains) in 
+  let remove_region = List.map ~f:(fun (_,b) -> b) in
+  match remain with
+  | (_,current) :: right -> Some (remove_region left,current, remove_region right)
+  | [] -> None
+
+(** from a list of expressions, returns the nearest expression  *)
+let find_nearest_expression list point =
+  let open State in
+  match find_enclosing_expression list point with
+  | None ->
+    (* no enclosing expression *)
+    let (let+) v f = Option.bind ~f v in
+    let distance ((region,_) as value) =
+      let distance = 
+        let+ start_position = Marker.position region.start_mark in
+        let+ end_position = Marker.position region.end_mark in
+        Some (min (abs (Position.to_int start_position - Position.to_int point))
+                (abs (Position.to_int end_position - Position.to_int point))) in
+      distance, value in
+    let regions = List.map list ~f:distance in
+    let+ (min, _) = List.min_elt ~compare:(fun (d,_) (d',_) ->
+        let d = match d with Some v -> v | None -> Int.max_value in
+        let d' = match d' with Some v -> v | None -> Int.max_value in
+        Int.compare d d') regions in
+    let eq = Option.equal (Int.equal) in
+    let remove_meta (_,(_,v)) = v in
+    begin match List.split_while regions ~f:(fun (d,_)  -> not @@ eq d min)  with
+      | (left, current :: right) ->
+        Some (
+          List.map ~f:remove_meta left,
+          remove_meta current,
+          List.map ~f:remove_meta right)
+      | _ -> None
+    end
+  | v -> v 
+
+let list_split_last ls = 
+  let rec loop ls acc =
+    match ls with
+    | h :: [] -> Some (h,List.rev acc)
+    | h :: t -> loop t (h :: acc)
+    | [] -> None in
+  loop ls []
+
+let build_zipper (state: State.Validated.t) point =
+  let find_nearest_prev_expression f list =
+    let (let+) v f = Option.bind ~f v in
+    let+ (left,current,right) = find_nearest_expression list point in
+    if (f current) = (Position.to_int point)
+    then begin
+      match list_split_last left with
+      | Some (last,left) -> Some (left, last, current::right)
+      | None -> Some (left,current,right)
+    end
+    else Some (left,current,right)
   in
-  let point = Position.to_int point in
+  let sif ({  psig_loc = { loc_start; _ }; _ }:Parsetree.signature_item) = loc_start.pos_cnum in
+  let stf ({  pstr_loc = { loc_start; _ }; _ }:Parsetree.structure_item) = loc_start.pos_cnum in    
   begin match state.parse_tree with 
-  | (State.MkParseTree (State.Impl si_list)) ->
-    find_enclosing_expression si_list
-    |> Option.map ~f:(fun (left,current,right) ->
-        Ast_zipper.make_zipper_impl left current right )
-  | (State.MkParseTree (State.Intf si_list)) ->
-    find_enclosing_expression si_list
-    |> Option.map ~f:(fun (left,current,right) ->
-        Ast_zipper.make_zipper_intf left current right
-      )
-  end |> Option.map ~f:(Ast_zipper.move_zipper_to_point point)
+    | (State.MkParseTree (State.Impl si_list)) ->
+      find_nearest_prev_expression stf si_list
+      |> Option.map ~f:(fun (left,current,right) ->
+          Ast_zipper.make_zipper_impl left current right )
+    | (State.MkParseTree (State.Intf si_list)) ->
+      find_nearest_prev_expression sif si_list
+      |> Option.map ~f:(fun (left,current,right) ->
+          Ast_zipper.make_zipper_intf left current right
+        )
+  end
 
 
 let find_enclosing_structure (state: State.Validated.t) point : State.parse_item option =
@@ -509,8 +559,8 @@ let apply_iterator (item: State.parse_item) iter f  =
   let open State in
   let (MkParseItem elem) = item in
   begin match elem with
-  | ImplIt (_,it) -> iter.Ast_iterator.structure_item iter it
-  | IntfIt (_, it) -> iter.Ast_iterator.signature_item iter it
+    | ImplIt (_,it) -> iter.Ast_iterator.structure_item iter it
+    | IntfIt (_, it) -> iter.Ast_iterator.signature_item iter it
   end;
   f ()
 
@@ -521,7 +571,7 @@ let find_enclosing_bounds (state: State.Validated.t) ~point =
     (* message (Printf.sprintf "enclosing structure: %s"(ExtLib.dump expr)); *)
     let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
     apply_iterator expr iter getter
-  |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
+    |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
   end
 
 (** returns a tuple of points enclosing the current structure *)
@@ -583,15 +633,25 @@ let retrieve_enclosing_bounds ?current_buffer ~state_var point =
 let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
-    |> Option.bind ~f:(fun state ->
-      let zipper = build_zipper state point in
-        Buffer_local.set zipper_var zipper current_buffer;
-        zipper)
+  |> Option.bind ~f:(fun state ->
+      let zipper = build_zipper state point
+                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point (Position.to_int point)) in
+      Buffer_local.set zipper_var zipper current_buffer;
+      zipper)
   |> Option.map ~f:Ast_zipper.to_bounds
   |> Option.map ~f:(fun (st,ed) ->
       Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
     )
 
+(** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
+let find_nearest_defun ?current_buffer ~state_var point =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_gopcaml_state ~current_buffer ~state_var ()
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
+  |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
+                        (Position.to_int point - 1)
+                        zipper)
+  |> Option.map ~f:(fun x -> x + 1)
 
 (** retrieve zipper *)
 let retrieve_zipper ?current_buffer ~zipper_var =
@@ -604,10 +664,10 @@ let delete_zipper ?current_buffer ~zipper_var () =
   Buffer_local.set zipper_var None current_buffer
 
 let abstract_zipper_to_bounds zipper = zipper
-  |> Option.map ~f:Ast_zipper.to_bounds
-  |> Option.map ~f:(fun (st,ed) ->
-      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
-    )
+                                       |> Option.map ~f:Ast_zipper.to_bounds
+                                       |> Option.map ~f:(fun (st,ed) ->
+                                           Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
+                                         )
 
 (** retrieve bounds for current zipper *)
 let retrieve_zipper_bounds ?current_buffer ~zipper_var () =
@@ -636,7 +696,7 @@ let move_zipper_right ?current_buffer ~zipper_var () =
     )
   |>  abstract_zipper_to_bounds  
 
-  
+
 (** attempts to move the current zipper down *)
 let move_zipper_down ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -648,7 +708,7 @@ let move_zipper_down ?current_buffer ~zipper_var () =
     )
   |>  abstract_zipper_to_bounds  
 
-  
+
 (** attempts to move the current zipper up *)
 let move_zipper_up ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -689,3 +749,4 @@ let zipper_delete_current ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
     )
+

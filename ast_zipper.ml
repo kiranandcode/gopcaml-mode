@@ -200,10 +200,67 @@ let make_zipper_impl left impl right =
 let contains_point (a,b) point =
   a <= point && point <= b
 
+let at_start current point =
+  match current with
+  | Structure_item { pstr_loc = { loc_start; _ }; _ }
+  | Signature_item { psig_loc = { loc_start; _ }; _ } ->
+    loc_start.pos_cnum = point
+  | _ -> false
+
+(** moves the location to the nearest expression enclosing or around it   *)
 let rec move_zipper_to_point point = function
   | MkLocation (Sequence (bounds, l,c,r), parent) ->
-    move_zipper_to_point point (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
-  | v -> v
+    let distance (start,ed) = min (abs (start - point)) (abs (ed - point)) in
+    (* finds the closest strictly enclosing item *)
+    let  find_closest_enclosing ls =
+      let rec loop ls acc =
+      match ls with
+      | h :: t ->
+        if contains_point (t_to_bounds h) point
+        then Some (acc, h, t)
+        else loop t (h :: acc)
+      | [] -> None in
+      loop ls [] in
+    begin match find_closest_enclosing (List.rev l @ c :: r)  with
+      (* we found an enclosing expression - go into it *)
+      | Some (l,c,r) ->
+        move_zipper_to_point point (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
+      (* none of the subelements contain the point - find the closest one *)
+      | None ->
+        let sub_items = (List.rev l @ c :: r)
+                        |> List.map ~f:(fun elem -> distance (t_to_bounds elem), elem) in
+        let min_item = List.min_elt
+            ~compare:(fun (d,_) (d',_) -> Int.compare d d') sub_items in
+        match min_item with
+        | None -> (* this can never happen - list always has at least 1 element *) assert false
+        | Some (min, _) ->
+          begin match List.split_while sub_items ~f:(fun (d,_) -> d <> min) with
+            | (l,(_, c) :: r) ->
+              let l = List.map ~f:snd l |> List.rev in
+              let r = List.map ~f:snd r in
+              move_zipper_to_point point (MkLocation (c, Node {below=l; parent; above=r; bounds}))
+          | _ -> assert false
+          end
+    end
+  | (MkLocation (current,parent) as v) ->
+    if  contains_point (t_to_bounds current) point
+    then match t_descend current with
+      | (Sequence _ as s) ->
+        let (MkLocation (current', _) as zipper) =
+          move_zipper_to_point point (MkLocation (s,parent)) in
+        let selected_distance =
+          let (start,ed) = t_to_bounds current' in
+          min (abs (start - point)) (abs (ed - point)) in
+        let enclosing_distance =
+          let (start,ed) = t_to_bounds current in
+          min (abs (start - point)) (abs (ed - point)) in
+        if enclosing_distance < selected_distance
+        then v
+        else zipper
+      | v -> (MkLocation (v, parent))
+    else v
+
+
 
 let go_up (MkLocation (current,parent)) =
   match parent with
@@ -326,3 +383,19 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
             bounds
           })))
   | _ -> None
+
+
+(** finds the item bounds for the nearest structure/signature (essentially defun) item  *)
+let find_nearest_definition_item_bounds point zipper : _ option =
+  let zipper = move_zipper_to_point point zipper in
+  let rec loop zipper =
+    let MkLocation (current,_) = zipper in
+    match current with
+    | Signature_item { psig_loc = { loc_start; _ }; _ } 
+    | Structure_item {  pstr_loc = { loc_start; _ };_ } -> 
+      if point = loc_start.pos_cnum
+      then (go_left zipper) |> Option.bind ~f:loop
+      else Some loc_start.pos_cnum
+    | _ ->  (go_up zipper) |> Option.bind ~f:loop
+  in
+  loop zipper

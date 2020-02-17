@@ -256,6 +256,14 @@ removes all existing overlays of type GROUP if present."
        t #'gopcaml-on-exit-zipper-mode)
       )))
 
+(defun gopcaml-beginning-defun ()
+  "Move backwards to the beginning of the defun."
+  (interactive)
+  (let ((area (car (gopcaml-find-defun-start (point)))))
+    (if area
+	(progn (goto-char  area))
+      (merlin-phrase-prev))))
+
 ;; graciously taken from https://emacs.stackexchange.com/questions/12532/buffer-local-idle-timer
 (defun run-with-local-idle-timer (secs repeat function &rest args)
   "`run-with-idle-timer' but always run in the `current-buffer'.
@@ -279,6 +287,8 @@ FUNCTION is the function to call on timer"
   (message "setting up gopcaml-bindings")
   (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
   (bind-key (kbd "C-M-z") #'gopcaml-enter-zipper-mode gopcaml-mode-map)
+  (bind-key (kbd "C-M-a") #'gopcaml-beginning-defun gopcaml-mode-map)
+  (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
   (setq after-change-functions
 	(cons #'gopcaml-update-dirty-region after-change-functions))
   (setq gopcaml-update-timer

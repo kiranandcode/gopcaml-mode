@@ -278,7 +278,19 @@ let define_functions () =
      let%map_open op =
        return @@ Gopcaml_state.zipper_delete_current ~zipper_var:Variables.zipper_var in
      op ()
-     |> Option.map ~f:(fun ((a,b)) -> [a; b]))
+     |> Option.map ~f:(fun ((a,b)) -> [a; b]));
+  defun
+    ("gopcaml-find-defun-start" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Returns the start of the nearest defun to POINT. |}
+    (Returns (Value.Type.option Value.Type.int))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" Position.type_
+     and op = return @@  Gopcaml_state.find_nearest_defun ~state_var:Variables.state_var in
+     op point)
+
+
+
 
 let gopcaml_mode =
   Major_mode.define_derived_mode
