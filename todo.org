@@ -36,6 +36,11 @@
    CLOSED: [2020-02-15 Sat 12:20]
 ** DONE Goto nearest structure item (for C-M-a (tuareg is screwed up))
    CLOSED: [2020-02-17 Mon 18:06]
+** DONE Fix issue with empty structures
+   CLOSED: [2020-02-18 Tue 11:43]
+** TODO Track lines in zipper
+** TODO Fix whitespace
+** TODO Add insertion capability?
 ** TODO add expression and more functionality to zipper
 ** TODO integrate with merlin (d)estruct/(l)ocate
 ** TODO Implement move into

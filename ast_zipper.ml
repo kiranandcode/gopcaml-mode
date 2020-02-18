@@ -1,9 +1,15 @@
 open Core
 
+module TextRegion = struct
+  type pos = int * int
+  type t = pos * pos
+end
+
 type t =
   | Signature_item of Parsetree.signature_item
   | Structure_item of Parsetree.structure_item
   | Sequence of (int * int) option * t list * t * t list
+  | EmptySequence of (int * int)
 
 (* Huet's zipper for asts *)
 type zipper =
@@ -29,6 +35,7 @@ let rec t_to_bounds = function
   | Sequence (Some (s,r), left,elem,right) ->
     List.map ~f:t_to_bounds (left @ elem :: right)
     |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(s,r)
+  | EmptySequence b -> b
 
 
 let t_list_to_bounds ls =
@@ -46,7 +53,7 @@ let to_bounds (MkLocation (current,_)) =
 (** updates the bounds of the zipper by a fixed offset *)
 let update_bounds ~(diff:int) state =
   let mapper = {Ast_mapper.default_mapper with location = (fun _ { loc_start; loc_end; loc_ghost } ->
-      Location.{
+      {
         loc_start={loc_start with pos_cnum = (if loc_start.pos_cnum = -1
                                               then -1
                                               else loc_start.pos_cnum + diff)};
@@ -55,7 +62,13 @@ let update_bounds ~(diff:int) state =
                                           else loc_end.pos_cnum + diff)};
         loc_ghost=loc_ghost}
     ) } in
-  let rec update state = 
+  (* update the bounds of a zipper by a fixed offset *)
+  let rec update state =
+    let update_region r_s r_r = match r_s,r_r with
+        | -1,-1 -> -1,-1
+        | -1,r -> -1, r + diff
+        | s,-1 -> s + diff,-1
+        | s,r -> s + diff, r + diff in
     match state with
     | Signature_item si -> Signature_item (mapper.signature_item mapper si)
     | Structure_item si -> Structure_item (mapper.structure_item mapper si)
@@ -64,12 +77,12 @@ let update_bounds ~(diff:int) state =
       Sequence (None, update_ls l, update c, update_ls r)
     | Sequence (Some (r_s,r_r), l,c,r) ->
       let update_ls = List.map ~f:update in
-      let r_m,r_r = match r_s,r_r with
-        | -1,-1 -> -1,-1
-        | -1,r -> -1, r + diff
-        | s,-1 -> s + diff,-1
-        | s,r -> s + diff, r + diff in
-      Sequence (Some (r_m,r_r), update_ls l, update c, update_ls r) in
+      let r_m,r_r = update_region r_s r_r in
+      Sequence (Some (r_m,r_r), update_ls l, update c, update_ls r)
+    | EmptySequence (r_s,r_r) ->
+      let r_m,r_r = update_region r_s r_r in
+      EmptySequence (r_m,r_r)
+  in
 
   update state
 
@@ -318,6 +331,9 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       let up = update_parent up in
       let bounds = update_meta_bound bounds in
       Some (MkLocation(l, Node{below=left;parent=up;above=right; bounds}))
+    | Node {below=[]; parent=up; above=[]; bounds=(Some (st, ed)) } ->
+      let up = update_parent up in
+       Some (MkLocation (EmptySequence (st,ed + diff), up)) 
     | Node {below=[]; parent=up; above=[]; _} ->
       remove_current (MkLocation (current, up)) in
   remove_current loc |> Option.map ~f:(fun v -> v,current_bounds) 
