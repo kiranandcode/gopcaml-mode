@@ -1,8 +1,20 @@
 open Core
 
 module TextRegion = struct
-  type pos = int * int
+
+  module Position = struct
+    type t = {line: int; col: int}
+
+    let (-) {line=l1;col=c1} {line=l2;col=c2} =
+      {line=l1 - l2; col = c1 - c2}
+
+  end
+
+  type pos = Position.t
   type t = pos * pos
+
+  let to_bounds Position.({col=cs;_},{col=ce; _}) = (cs,ce)
+
 end
 
 type t =
