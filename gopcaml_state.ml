@@ -408,6 +408,9 @@ module State = struct
 end
 
 
+
+
+
 (** sets up the gopcaml-mode state - intended to be called by the startup hook of gopcaml mode*)
 let setup_gopcaml_state
     ~state_var ~interface_extension_var ~implementation_extension_var =
@@ -653,6 +656,10 @@ let find_nearest_defun ?current_buffer ~state_var point =
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
+
+
+
+
 (** retrieve zipper *)
 let retrieve_zipper ?current_buffer ~zipper_var =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -719,7 +726,7 @@ let move_zipper_up ?current_buffer ~zipper_var () =
       zipper
     )
   |>  abstract_zipper_to_bounds  
-
+  
 (** attempts "update" the buffer using the zipper, returning the two regions to be swapped *)
 let abstract_zipper_update f ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -757,5 +764,16 @@ let zipper_delete_current ?current_buffer ~zipper_var () =
   |> Option.map ~f:(fun (zipper,(l1,l2)) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
+    )
+
+(** inserts a let def using the zipper, returning the text to insert,
+   and the point at which to insert it *)
+let zipper_insert_let_def ?current_buffer ~zipper_var column_number ()  =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:(Ast_zipper.Synthesis.insert_let_def column_number)
+  |> Option.map ~f:(fun (zipper,(string,pos)) ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      (string, Position.of_int_exn (pos + 1))
     )
 

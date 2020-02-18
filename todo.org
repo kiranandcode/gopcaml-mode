@@ -38,15 +38,28 @@
    CLOSED: [2020-02-17 Mon 18:06]
 ** DONE Fix issue with empty structures
    CLOSED: [2020-02-18 Tue 11:43]
-** TODO Track lines in zipper
-** TODO Fix whitespace
-** TODO Add insertion capability?
-** TODO add expression and more functionality to zipper
-** TODO integrate with merlin (d)estruct/(l)ocate
+** DONE Track lines in zipper
+   CLOSED: [2020-02-18 Tue 13:20]
+** DONE Remove type holes on edit
+   CLOSED: [2020-02-18 Tue 18:57]
+** DONE Add insertion capability?
+   CLOSED: [2020-02-18 Tue 18:57]
 ** TODO Implement move into
 ** TODO Implement move outof
+** TODO Fix whitespace
+** TODO move to (??) type holes with C-n C-p if present in function DWIM
+*** Write function to check if current buffer contains any type holes
+*** Write function to return position of next type hole
+** TODO add expression and more functionality to zipper
+** TODO integrate with merlin (d)estruct/(l)ocate
 ** TODO Extract binding
 ** TODO Highlight regions
 *** Add function to find all repetitions of enclosing expression
 *** add function to highlight all these bounds temporarily
 *** add-on-idle function to run highlight on delay
+* Gopcaml-mode Ideas
+** Better move to defun recognition
+*** If point on the same line, then use current item
+*** Use line distance rather than character distance  (makes more sense)
+*** In case of tie then use column
+

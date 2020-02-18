@@ -287,8 +287,18 @@ let define_functions () =
     (let open Defun.Let_syntax in
      let%map_open point = required "point" Position.type_
      and op = return @@  Gopcaml_state.find_nearest_defun ~state_var:Variables.state_var in
-     op point)
+     op point);
+  defun
+    ("gopcaml-zipper-insert-let-def-start" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Uses the zipper to insert a let-def. |}
+    (Returns (Value.Type.option (Value.Type.tuple Value.Type.string Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open column_no = required "point" Value.Type.int  in
+     let op = Gopcaml_state.zipper_insert_let_def ~zipper_var:Variables.zipper_var column_no in
+     op ())
 
+(* zipper_insert_let_def *)
 
 
 
@@ -311,6 +321,10 @@ let gopcaml_mode =
                    define_functions ()
                 )
     ()
+
+
+
+
 
 (* Finally, provide the gopcaml symbol  *)
 let () =

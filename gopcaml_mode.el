@@ -86,6 +86,9 @@ removes all existing overlays of type GROUP if present."
 (defvar-local gopcaml-update-timer nil
   "Timer object used to periodically update gopcaml state.")
 
+(defvar-local  gopcaml-expand-timer nil
+  "Timer object used to periodically expand the element under point")
+
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
   (interactive)
@@ -130,6 +133,23 @@ removes all existing overlays of type GROUP if present."
       (setq area (car (gopcaml-retrieve-zipper-bounds)))
       (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
       (goto-char (car area)))))
+
+(defun gopcaml-zipper-insert-letdef ()
+  "Attempt to insert a let-def using the zipper."
+  (interactive)
+  (let (area (column (current-column)) text start-pos)
+    (setq area (car (gopcaml-zipper-insert-let-def-start column)))
+    (setq text (car area))
+    (setq start-pos (cdr area))
+    (goto-char start-pos)
+    (insert "\n\n")
+    (insert (make-string column 32))
+    (insert text)
+    (insert "\n")
+    (setq area (car (gopcaml-retrieve-zipper-bounds)))
+    (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+    (goto-char (car area))
+    ))
 
 (defun gopcaml-copy-region ()
   "Copy region encompassed by the zipper."
@@ -191,6 +211,7 @@ removes all existing overlays of type GROUP if present."
   (interactive)
   (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-backwards))
 
+
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
     (define-key gopcaml-map (kbd "e") '(lambda ()
@@ -228,6 +249,8 @@ removes all existing overlays of type GROUP if present."
     (define-key gopcaml-map (kbd "T") '(lambda ()
 					 (interactive)
 					 (gopcaml-zipper-type)))
+    (define-key gopcaml-map (kbd "i") #'gopcaml-zipper-insert-letdef)
+ 
     gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
 
@@ -282,6 +305,18 @@ FUNCTION is the function to call on timer"
     (fset fns fn)
     fn))
 
+(defun gopcaml-before-change-remove-type-hole (beginning end)
+    "Before inserting text, attempt to remove type holes.
+BEGINNING is the start of the edited text region.
+END is the end of the edited text region."
+    (let ( (point (point)) element)
+      (setq element (buffer-substring-no-properties  point (+ point 4)))
+      (if (equal "(??)" element)
+	  (delete-region point (+ point 4))
+	  )))
+
+
+
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
@@ -289,10 +324,22 @@ FUNCTION is the function to call on timer"
   (bind-key (kbd "C-M-z") #'gopcaml-enter-zipper-mode gopcaml-mode-map)
   (bind-key (kbd "C-M-a") #'gopcaml-beginning-defun gopcaml-mode-map)
   (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
+  ;; C-n should move to the next field
+  
+  (bind-key (kbd "C-n") #'yas-next-field-or-maybe-expand yas-keymap)
   (setq after-change-functions
 	(cons #'gopcaml-update-dirty-region after-change-functions))
+  (setq before-change-functions
+	(cons #'gopcaml-before-change-remove-type-hole before-change-functions))
   (setq gopcaml-update-timer
-	(run-with-local-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state)))
+	(run-with-local-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state))
+  ;; whenever prefix - expand
+  ;; (setq gopcaml-expand-timer
+  ;; 	(run-with-local-idle-timer 0.1 t (lambda () (interactive) (yas-expand))))
+  )
+
+
+
 
 (defun gopcaml-teardown-bindings ()
   "Teardown bindings for gopcaml-mode."
