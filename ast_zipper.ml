@@ -1,40 +1,181 @@
 open Core
 
-module TextRegion = struct
-  type pos = int * int
+module TextRegion : sig
+  module Diff : sig
+    type t
+    val negate : t -> t
+    val update_lexing_position : Lexing.position -> t -> Lexing.position 
+  end
+  
+  type t
+
+  val of_location: Location.t -> t
+
+  val to_bounds : t -> (int * int)
+
+  val shift_region : t -> Diff.t -> t
+
+  val extend_region : t -> Diff.t -> t
+
+  val union : t -> t -> t
+
+  val contains_point : t -> int -> bool
+  
+  val ast_bounds_iterator : unit -> Ast_iterator.iterator * (unit -> t)
+
+  val distance : t -> int -> int option
+
+  val to_diff : t -> Diff.t option
+
+  val swap_diff : t -> t -> (Diff.t * Diff.t) option
+  
+end = struct
+
+  module Diff = struct
+    type t = int * int
+
+    let negate (a,b) = (-a,-b)
+
+    let update_lexing_position (pos: Lexing.position) (line,col) : Lexing.position =
+      let cnum = match pos.pos_cnum with -1 -> -1 | _ -> max (pos.pos_cnum + col) (-1) in
+      let lnum = match pos.pos_lnum with -1 -> -1 | _ -> max (pos.pos_lnum + line) (-1) in
+      {pos with pos_cnum = cnum; pos_lnum = lnum}
+      
+  end
+
+  module Position = struct
+    type t = {line: int; col: int}
+
+    let of_lexing (pos: Lexing.position) : t =
+      let Lexing.{pos_lnum; pos_cnum; _} = pos in
+      {line=pos_lnum; col = pos_cnum}
+
+    let (+) {line=l1;col=c1} (line,col) =
+      let c1 = match c1 with -1 -> -1 | _ -> max (c1 + col) (-1) in
+      let l1 = match l1 with -1 -> -1 | _ -> max (l1 + line) (-1) in
+      {line=l1; col = c1}
+
+    let cmp f a b = match (a,b) with -1,-1 -> -1 | a,-1 -> a | -1,b -> b | a,b -> f a b 
+    let min = cmp min
+    let max = cmp max
+
+    let min {line=l1;col=c1} {line=l2;col=c2} =
+      {line=min l1 l2; col=min c1 c2}
+
+    let max {line=l1;col=c1} {line=l2;col=c2} =
+      {line=max l1 l2; col=max c1 c2}
+
+  end
+
+  type pos = Position.t
+
   type t = pos * pos
+
+  let to_bounds Position.({col=cs;_},{col=ce; _}) = (cs,ce)
+
+  let shift_region (r_start, r_end) shift =
+    let open Position in
+    r_start + shift, r_end + shift
+
+  let extend_region (r_start, r_end) shift =
+    let open Position in
+    r_start, r_end + shift
+
+  let of_location (loc :Location.t) : t =
+    let st = Position.of_lexing loc.loc_start in
+    let ed = Position.of_lexing loc.loc_end in
+    (st,ed)
+
+  let union (st1,ed1) (st2,ed2) =
+    let open Position in
+    let (st1,ed1) = min st1 ed1, max st1 ed1 in
+    let (st2,ed2) = min st2 ed2, max st2 ed2 in
+    (Position.min st1 st2),(Position.max ed1 ed2)
+
+  let ast_bounds_iterator () =
+    let bounds = ref None in
+    let retrieve_bounds () = Option.value_exn !bounds in
+    let update_bounds pstr_loc =
+      let new_bounds = of_location pstr_loc in
+      let new_bounds = match !bounds with
+        | None -> new_bounds
+        | Some old_bounds -> union old_bounds new_bounds in
+      bounds := Some new_bounds
+  in
+  Ast_iterator.{
+    default_iterator
+    with
+      location = fun _ -> update_bounds
+  }, retrieve_bounds
+
+  let contains_point (({  col=c1; _ },{  col=c2; _ }):t) point =
+    match c1,c2 with
+    | -1,-1 | -1, _ | _, -1 -> false
+    | a, b  -> a <= point && point <= b
+
+  let distance (({ col=c1; _ },{ col=c2; _ }):t) point =
+    match c1,c2 with
+    | -1,-1 | -1, _ | _, -1 -> None
+    | start, ed  -> Some (min (abs (start - point)) (abs (ed - point)))
+
+  let to_diff (({ line=l1; col=c1; },{ line=l2; col=c2; }): t) =
+    let (let+) x f = Option.bind ~f x in
+    let unwrap vl = match  vl with -1 -> None | v -> Some v in
+    let+ l1 = unwrap l1 in
+    let+ l2 = unwrap l2 in
+    let+ c1 = unwrap c1 in
+    let+ c2 = unwrap c2 in
+    Some (l1 - l2, c1 - c2)
+
+  let swap_diff
+      (({ line=a_l1; col=a_c1; },{ line=a_l2; col=a_c2; }): t)
+      (({ line=b_l1; col=b_c1; },{ line=b_l2; col=b_c2; }): t) =
+    let (let+) x f = Option.bind ~f x in
+    let unwrap vl = match  vl with -1 -> None | v -> Some v in
+    let+ a_l1 = unwrap a_l1 in
+    let+ a_l2 = unwrap a_l2 in
+    let+ a_c1 = unwrap a_c1 in
+    let+ a_c2 = unwrap a_c2 in
+    let+ b_l1 = unwrap b_l1 in
+    let+ b_l2 = unwrap b_l2 in
+    let+ b_c1 = unwrap b_c1 in
+    let+ b_c2 = unwrap b_c2 in
+    let forward_shift = (a_l2 - b_l2, a_c2 - b_c2) in
+    let backwards_shift = (b_l1 - a_l1, b_c1 - a_c1) in
+    Some (forward_shift,backwards_shift)
+
 end
 
 type t =
   | Signature_item of Parsetree.signature_item
   | Structure_item of Parsetree.structure_item
-  | Sequence of (int * int) option * t list * t * t list
-  | EmptySequence of (int * int)
+  | Sequence of TextRegion.t option * t list * t * t list
+  | EmptySequence of TextRegion.t
 
 (* Huet's zipper for asts *)
 type zipper =
   | Top
-  | Node of {bounds: (int * int) option; below: t list; parent: zipper; above: t list; }
+  | Node of {bounds: TextRegion.t option; below: t list; parent: zipper; above: t list; }
 
 type location =
   | MkLocation of t * zipper
 
 let rec t_to_bounds = function
   | Signature_item si ->
-    let (iter,get) = Ast_transformer.bounds_iterator () in
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
     iter.signature_item iter si;
     get ()
   | Structure_item si ->
-    let (iter,get) = Ast_transformer.bounds_iterator () in
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
     iter.structure_item iter si;
     get ()
   (* if its a sequence, take the union *)
   | Sequence (None, left,elem,right) ->
     List.map ~f:t_to_bounds (left @ right)
-    |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(t_to_bounds elem)
-  | Sequence (Some (s,r), left,elem,right) ->
+    |> List.fold ~f:(fun  a b  -> TextRegion.union a b ) ~init:(t_to_bounds elem)
+  | Sequence (Some region, left,elem,right) ->
     List.map ~f:t_to_bounds (left @ elem :: right)
-    |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(s,r)
+    |> List.fold ~f:TextRegion.union ~init:region
   | EmptySequence b -> b
 
 
@@ -42,46 +183,36 @@ let t_list_to_bounds ls =
   match ls with
   | h :: t ->
     List.map ~f:t_to_bounds t
-    |> List.fold ~f:(fun (x1,y1) (x2,y2) -> (min x1 x2, max y1 y2)) ~init:(t_to_bounds h)
+    |> List.fold ~f:TextRegion.union ~init:(t_to_bounds h)
     |> fun x -> Some x
   | _ -> None
 
 (** converts a zipper to the bounds of the current item *)
 let to_bounds (MkLocation (current,_)) = 
-  t_to_bounds current
+  TextRegion.to_bounds (t_to_bounds current)
 
 (** updates the bounds of the zipper by a fixed offset *)
-let update_bounds ~(diff:int) state =
-  let mapper = {Ast_mapper.default_mapper with location = (fun _ { loc_start; loc_end; loc_ghost } ->
-      {
-        loc_start={loc_start with pos_cnum = (if loc_start.pos_cnum = -1
-                                              then -1
-                                              else loc_start.pos_cnum + diff)};
-        loc_end={loc_end with pos_cnum = (if loc_end.pos_cnum = -1
-                                          then -1
-                                          else loc_end.pos_cnum + diff)};
-        loc_ghost=loc_ghost}
+let update_bounds ~diff state =
+  let mapper = {Ast_mapper.default_mapper with location = (fun _ ({ loc_start; loc_end; _ } as loc) ->
+      {loc with
+        loc_start= TextRegion.Diff.update_lexing_position loc_start diff;
+        loc_end= TextRegion.Diff.update_lexing_position loc_end diff; }
     ) } in
   (* update the bounds of a zipper by a fixed offset *)
   let rec update state =
-    let update_region r_s r_r = match r_s,r_r with
-        | -1,-1 -> -1,-1
-        | -1,r -> -1, r + diff
-        | s,-1 -> s + diff,-1
-        | s,r -> s + diff, r + diff in
     match state with
     | Signature_item si -> Signature_item (mapper.signature_item mapper si)
     | Structure_item si -> Structure_item (mapper.structure_item mapper si)
     | Sequence (None, l,c,r) ->
       let update_ls = List.map ~f:update in
       Sequence (None, update_ls l, update c, update_ls r)
-    | Sequence (Some (r_s,r_r), l,c,r) ->
+    | Sequence (Some region, l,c,r) ->
       let update_ls = List.map ~f:update in
-      let r_m,r_r = update_region r_s r_r in
-      Sequence (Some (r_m,r_r), update_ls l, update c, update_ls r)
-    | EmptySequence (r_s,r_r) ->
-      let r_m,r_r = update_region r_s r_r in
-      EmptySequence (r_m,r_r)
+      let region = TextRegion.shift_region region diff in
+      Sequence (Some region, update_ls l, update c, update_ls r)
+    | EmptySequence region ->
+      let region = TextRegion.shift_region region diff in
+      EmptySequence region
   in
 
   update state
@@ -89,9 +220,9 @@ let update_bounds ~(diff:int) state =
 
 let rec unwrap_module_type ?range
     ({ pmty_desc;
-       pmty_loc={ loc_start; loc_end; _ (* loc_ghost *) };
+       pmty_loc=location;
        _ (* pmty_loc; pmty_attributes *) }: Parsetree.module_type) : _ option =
-  let meta_pos = match range with None -> Some (loc_start.pos_cnum, loc_end.pos_cnum) | v -> v in
+  let meta_pos = match range with None -> Some (TextRegion.of_location location) | v -> v in
   begin match pmty_desc with
     (* | Parsetree.Pmty_ident _ -> (??) *)
     | Parsetree.Pmty_signature (h :: t)  ->
@@ -112,9 +243,9 @@ let rec unwrap_module_type ?range
 
 let rec unwrap_module_expr ?range
     ({ pmod_desc;
-       pmod_loc={ loc_start; loc_end; _ (* loc_ghost *) };
+       pmod_loc=location;
        _ (* pmod_loc; pmod_attributes *) }: Parsetree.module_expr)  =
-  let meta_pos = match range with None -> Some (loc_start.pos_cnum, loc_end.pos_cnum) | v -> v in
+  let meta_pos = match range with None -> Some (TextRegion.of_location location) | v -> v in
   match pmod_desc with
   (* | Parsetree.Pmod_ident _ -> (??) *) (* X *)
   | Parsetree.Pmod_structure (m :: mt) ->
@@ -150,6 +281,8 @@ let rec unwrap_module_expr ?range
 
 
 let t_descend t =
+
+
   let range = t_to_bounds t in
   match t with
   | Signature_item ({ psig_desc; _ } as si) ->
@@ -210,8 +343,6 @@ let make_zipper_impl left impl right =
   let impl = Structure_item impl in
   MkLocation (Sequence (None, List.rev left, impl, right), Top)
 
-let contains_point (a,b) point =
-  a <= point && point <= b
 
 let at_start current point =
   match current with
@@ -221,15 +352,19 @@ let at_start current point =
   | _ -> false
 
 (** moves the location to the nearest expression enclosing or around it   *)
-let rec move_zipper_to_point point = function
+let rec move_zipper_to_point point =
+    let distance region =
+      match TextRegion.distance region point with
+      | None -> Int.max_value
+      | Some v -> v  in
+  function
   | MkLocation (Sequence (bounds, l,c,r), parent) ->
-    let distance (start,ed) = min (abs (start - point)) (abs (ed - point)) in
     (* finds the closest strictly enclosing item *)
     let  find_closest_enclosing ls =
       let rec loop ls acc =
       match ls with
       | h :: t ->
-        if contains_point (t_to_bounds h) point
+        if TextRegion.contains_point (t_to_bounds h) point
         then Some (acc, h, t)
         else loop t (h :: acc)
       | [] -> None in
@@ -256,17 +391,15 @@ let rec move_zipper_to_point point = function
           end
     end
   | (MkLocation (current,parent) as v) ->
-    if  contains_point (t_to_bounds current) point
+    if  TextRegion.contains_point (t_to_bounds current) point
     then match t_descend current with
       | (Sequence _ as s) ->
         let (MkLocation (current', _) as zipper) =
           move_zipper_to_point point (MkLocation (s,parent)) in
         let selected_distance =
-          let (start,ed) = t_to_bounds current' in
-          min (abs (start - point)) (abs (ed - point)) in
+          distance (t_to_bounds current') in
         let enclosing_distance =
-          let (start,ed) = t_to_bounds current in
-          min (abs (start - point)) (abs (ed - point)) in
+          distance (t_to_bounds current) in
         if enclosing_distance < selected_distance
         then v
         else zipper
@@ -288,25 +421,26 @@ let go_down (MkLocation (current,parent)) =
     Some (MkLocation (focused, Node {below=left;parent;above=right; bounds;}))
   | _ -> None
 
-let go_left (MkLocation (current,parent)) =
+let go_left (MkLocation (current,parent) as loc) =
   match parent with
   | Node { bounds; below=l::left; parent; above } ->
     Some (MkLocation (l, Node {below=left; parent; above=current::above; bounds}))
-  | _ -> None
+  | _ -> go_up loc
 
-let go_right (MkLocation (current,parent)) =
+let go_right (MkLocation (current,parent) as loc) =
   match parent with
   | Node { below; parent; above=r::right; bounds } ->
     Some (MkLocation (r, Node {below=current::below; parent; above=right; bounds}))
-  | _ -> None
+  | _ -> go_up loc
 
 (** deletes the current element of the zipper  *)
 let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
+  let (let+) x f = Option.bind ~f x in
   let current_bounds =  t_to_bounds current in
-  let diff = fst current_bounds - snd current_bounds in
+  let+ diff = TextRegion.to_diff current_bounds (* fst current_bounds - snd current_bounds *) in
   let update_bounds = update_bounds ~diff in
   let update_meta_bound bounds = 
-    match bounds with None -> None | Some (st,ed) -> Some (st, ed + diff)
+    match bounds with None -> None | Some bounds -> Some (TextRegion.extend_region bounds diff)
   in
   (* update parent *)
   let rec update_parent parent = match parent with
@@ -331,9 +465,9 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       let up = update_parent up in
       let bounds = update_meta_bound bounds in
       Some (MkLocation(l, Node{below=left;parent=up;above=right; bounds}))
-    | Node {below=[]; parent=up; above=[]; bounds=(Some (st, ed)) } ->
+    | Node {below=[]; parent=up; above=[]; bounds=(Some bounds) } ->
       let up = update_parent up in
-       Some (MkLocation (EmptySequence (st,ed + diff), up)) 
+       Some (MkLocation (EmptySequence (TextRegion.extend_region bounds diff), up)) 
     | Node {below=[]; parent=up; above=[]; _} ->
       remove_current (MkLocation (current, up)) in
   remove_current loc |> Option.map ~f:(fun v -> v,current_bounds) 
@@ -342,10 +476,12 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
 let calculate_swap_bounds (MkLocation (current,parent)) =
   match parent with
   | Node { below=l::left; parent; above=r::right; bounds } ->
+    let (let+) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
-    let prev_diff = snd current_bounds - snd prev_bounds in
-    let current_diff = fst prev_bounds - fst current_bounds in
+    let+ (prev_diff,current_diff) = TextRegion.swap_diff current_bounds prev_bounds in
+    (* let prev_diff = snd current_bounds - snd prev_bounds in
+     * let current_diff = fst prev_bounds - fst current_bounds in *)
     Some (
       current_bounds,
       prev_bounds,
@@ -363,10 +499,12 @@ let calculate_swap_bounds (MkLocation (current,parent)) =
 let calculate_swap_forward_bounds (MkLocation (current,parent)) =
   match parent with
   | Node { below=left; parent; above=r::right; bounds } ->
+    let (let+) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds r in
-    let prev_diff = fst current_bounds - fst prev_bounds in
-    let current_diff = snd prev_bounds - snd current_bounds in
+    let+ (current_diff,prev_diff) = TextRegion.swap_diff prev_bounds current_bounds in
+    (* let prev_diff = fst current_bounds - fst prev_bounds in
+     * let current_diff = snd prev_bounds - snd current_bounds in *)
     Some (
       current_bounds,
       prev_bounds,
@@ -383,10 +521,12 @@ let calculate_swap_forward_bounds (MkLocation (current,parent)) =
 let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
   match parent with
   | Node { below=l::left; parent; above=right; bounds } ->
+    let (let+) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
-    let prev_diff = snd current_bounds - snd prev_bounds in
-    let current_diff = fst prev_bounds - fst current_bounds in
+    let+ (prev_diff,current_diff) = TextRegion.swap_diff current_bounds prev_bounds in
+    (* let prev_diff = snd current_bounds - snd prev_bounds in
+     * let current_diff = fst prev_bounds - fst current_bounds in *)
     Some (
       current_bounds,
       prev_bounds,
