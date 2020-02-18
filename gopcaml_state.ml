@@ -725,6 +725,11 @@ let abstract_zipper_update f ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_zipper ~current_buffer ~zipper_var
   |> Option.bind ~f
+  |> Option.map ~f:(fun (r1,r2,zipper) ->
+      let r1 = Ast_zipper.TextRegion.to_bounds r1 in
+      let r2 = Ast_zipper.TextRegion.to_bounds r2 in
+      (r1,r2,zipper)
+    )
   |> Option.map ~f:(fun ((l1,l2),(r1,r2),zipper) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1)),
@@ -745,6 +750,10 @@ let zipper_delete_current ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_zipper ~current_buffer ~zipper_var
   |> Option.bind ~f:Ast_zipper.calculate_zipper_delete_bounds
+  |> Option.map ~f:(fun (zipper, r1) ->
+      let r1 = Ast_zipper.TextRegion.to_bounds r1 in
+      (zipper,r1)
+    )
   |> Option.map ~f:(fun (zipper,(l1,l2)) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
