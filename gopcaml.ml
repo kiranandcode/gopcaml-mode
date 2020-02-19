@@ -170,6 +170,18 @@ let define_functions () =
      |> Option.map ~f:(fun (a,b) -> [a; b])
     );
   defun
+    ("gopcaml-broadly-build-zipper" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Builds an ast zipper broadly around the current point. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" (Position.type_)
+     and line = required "line" Value.Type.int in
+     Gopcaml_state.build_zipper_broadly_enclosing_point 
+       ~state_var:Variables.state_var ~zipper_var:Variables.zipper_var point line
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
     ("gopcaml-delete-zipper" |> Symbol.intern)
     [%here]
     ~docstring:{| Deletes the zipper if it exists. |}

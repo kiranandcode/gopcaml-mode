@@ -481,6 +481,83 @@ let rec move_zipper_to_point point line forward =
       | v -> (MkLocation (v, parent))
     else v
 
+(** moves the location to the nearest structure item enclosing or around it   *)
+let rec move_zipper_broadly_to_point point line forward =
+  let distance region =
+    let line_pos =
+      if not forward then
+        if TextRegion.line_start region > line then 1 else 0
+      else 0 in
+    match TextRegion.distance_line region ~point ~line with
+    | None -> line_pos,Int.max_value, Int.max_value
+    | Some (col,line) -> (line_pos, line,col)  in
+  function
+  | MkLocation (Sequence (bounds, l,c,r), parent) ->
+    (* finds the closest strictly enclosing item *)
+    let  find_closest_enclosing ls =
+      let rec loop ls acc =
+        match ls with
+        | h :: t ->
+          if TextRegion.contains_point (t_to_bounds h) point
+          then Some (acc, h, t)
+          else loop t (h :: acc)
+        | [] -> None in
+      loop ls [] in
+    begin match find_closest_enclosing (List.rev l @ c :: r)  with
+      (* we found an enclosing expression - go into it *)
+      | Some (l,c,r) ->
+        move_zipper_broadly_to_point point line forward
+          (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
+      (* none of the subelements contain the point - find the closest one *)
+      | None ->
+        let sub_items = (List.rev l @ c :: r)
+                        |> List.map ~f:(fun elem -> distance (t_to_bounds elem), elem) in
+        let min_item = List.min_elt
+            ~compare:(fun (d,_) (d',_) ->
+                Tuple3.compare ~cmp1:Int.compare ~cmp2:Int.compare ~cmp3:Int.compare d d'
+              ) sub_items in
+        match min_item with
+        | None -> (* this can never happen - list always has at least 1 element *) assert false
+        | Some (min, _) ->
+          begin match List.split_while sub_items ~f:(fun (d,_) ->
+              not @@ Tuple3.equal ~eq1:Int.equal ~eq2:Int.equal ~eq3:Int.equal d min
+            ) with
+          | ([],(_, c) :: r) ->
+            (* let start_col = TextRegion.column_start (t_to_bounds c) in *)
+            let sel_line = TextRegion.line_start (t_to_bounds c) in
+            let r = List.map ~f:snd r in
+            if sel_line > line && (not forward)
+            then (MkLocation (Sequence (bounds, [],c,r), parent))
+            else
+              move_zipper_broadly_to_point point line forward
+                (MkLocation (c, Node {below=l; parent; above=r; bounds}))
+            | (l,(_, c) :: r) ->
+              let l = List.map ~f:snd l |> List.rev in
+              let r = List.map ~f:snd r in
+              move_zipper_broadly_to_point point line forward
+                (MkLocation (c, Node {below=l; parent; above=r; bounds}))
+            | _ -> assert false
+          end
+    end
+  | (MkLocation (current,parent) as v) ->
+    if  TextRegion.contains_point (t_to_bounds current) point
+    then match t_descend current with
+      | (Sequence _ as s) ->
+        let (MkLocation (current', _) as zipper) =
+          move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
+        let selected_distance =
+          distance (t_to_bounds current') in
+        let enclosing_distance =
+          distance (t_to_bounds current) in
+        if (snd3 enclosing_distance < snd3 selected_distance) ||
+           ((trd3 enclosing_distance = trd3 selected_distance) &&
+            (trd3 enclosing_distance < trd3 selected_distance)) ||
+           (fst3 selected_distance > line)
+        then v
+        else zipper
+      | v -> (MkLocation (v, parent))
+    else v
+
 module Synthesis = struct
 
   (* Returns a structure representing "let _ = (??)" *)

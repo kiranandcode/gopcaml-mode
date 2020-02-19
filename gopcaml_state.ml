@@ -831,13 +831,27 @@ let retrieve_enclosing_bounds ?current_buffer ~state_var point =
   |> Option.bind ~f:(find_enclosing_bounds ~point)
 
 
-(** retrieve a zipper enclosing structure at the current position *)
+(** retrieve a zipper expression at the current position *)
 let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point line  =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
                    |> Option.map ~f:(Ast_zipper.move_zipper_to_point (Position.to_int point) line false) in
+      Buffer_local.set zipper_var zipper current_buffer;
+      zipper)
+  |> Option.map ~f:Ast_zipper.to_bounds
+  |> Option.map ~f:(fun (st,ed) ->
+      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
+    )
+
+(** retrieve a zipper enclosing structure at the current position *)
+let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var point line  =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_gopcaml_state ~current_buffer ~state_var ()
+  |> Option.bind ~f:(fun state ->
+      let zipper = build_zipper state point
+                   |> Option.map ~f:(Ast_zipper.move_zipper_broadly_to_point (Position.to_int point) line false) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
   |> Option.map ~f:Ast_zipper.to_bounds
