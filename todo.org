@@ -51,16 +51,25 @@
     CLOSED: [2020-02-19 Wed 15:09]
 *** DONE C-M-e - move to end of defun & move zipper broadly to point and start zipper at structure item
     CLOSED: [2020-02-19 Wed 15:09]
-*** TODO C-M-u - backwards up list - move granularly to region, and move up zipper
-*** TODO C-M-u - backwards up list - move granularly to region, and move down zipper
-*** TODO - list expressions move forward without expanding the element
-**** TODO C-M-n - forwards list - move broadly to region and move left zipper
-**** TODO C-M-p - backwards list - move broadly to region and move left zipper
-*** TODO - forwards expressions attempt to expand the item below it
-**** TODO C-M-f - forwards sexp - move granularly to region and move forward zipper
-**** TODO C-M-b - backwards sexp - move granularly to region and move backwards zipper
+*** DONE C-M-u - backwards up list - move granularly to region, and move up zipper
+    CLOSED: [2020-02-19 Wed 17:17]
+*** DONE C-M-u - backwards up list - move granularly to region, and move down zipper
+    CLOSED: [2020-02-19 Wed 17:17]
+*** DONE - list expressions move forward without expanding the element
+    CLOSED: [2020-02-19 Wed 17:17]
+**** DONE C-M-n - forwards list - move broadly to region and move left zipper
+     CLOSED: [2020-02-19 Wed 17:17]
+**** DONE C-M-p - backwards list - move broadly to region and move left zipper
+     CLOSED: [2020-02-19 Wed 17:17]
+*** DONE - forwards expressions attempt to expand the item below it
+    CLOSED: [2020-02-19 Wed 17:17]
+**** DONE C-M-f - forwards sexp - move granularly to region and move forward zipper
+     CLOSED: [2020-02-19 Wed 17:17]
+**** DONE C-M-b - backwards sexp - move granularly to region and move backwards zipper
+     CLOSED: [2020-02-19 Wed 17:17]
 *** TODO - move zipper to point and kill
-**** TODO C-M-k - kill sexp
+**** DONE C-M-k - kill sexp
+     CLOSED: [2020-02-19 Wed 17:17]
 **** TODO C-M-spc - mark sexp - move zipper to point and select region
 *** TODO M-{, M-} - move paragraph - (i.e top level structure items)
 *** TODO M-a, M-e - move sentences - module

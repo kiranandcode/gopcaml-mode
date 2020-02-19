@@ -89,7 +89,100 @@ removes all existing overlays of type GROUP if present."
       (setq end (cdr area))
       (gopcaml-temporarily-highlight-region (cons start end)))))
 
+(defun move-gopcaml-zipper (zipper-fn)
+  "Move the zipper using ZIPPER-FN."
+  (let ((area (car (funcall zipper-fn))) start end (buf-name (buffer-name)))
+    (if area
+	(progn
+	  (setq start (car area))
+	  (setq end (cadr area))
+	  (move-overlay gopcaml-zipper-overlay start end)
+	  (let ((wind-start (window-start)) (wind-end (window-end)))
+	    (if (and wind-start wind-end (< wind-start start wind-end))
+		(set-window-point (get-buffer-window buf-name) start)
+	      (goto-char start))
+	    )
+	  t
+	  )
+      nil)))
 
+(defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor)
+  "Start gopcaml-zipper mode using ZIPPER-CONSTRUCTOR and perform OPERATION."
+  (interactive)
+  (if (not zipper-constructor) (setq zipper-constructor #'gopcaml-build-zipper))
+  ;;  if not already in zipper mode
+  (if (not gopcaml-zipper)
+  ;; build zipper aronud point
+      (let ((area (car (funcall zipper-constructor (point) (line-number-at-pos)))) start end overlay)
+	;; if successfull then perform operation
+	(if area
+	    (progn
+	      (setq start (car area))
+	      (setq end (cadr area))
+	      (setq overlay (make-overlay start end))
+	      (overlay-put overlay 'face 'gopcaml-zipper-face)
+	      (overlay-put overlay 'gopcaml-kind 'zipper)
+	      (setq gopcaml-zipper-overlay overlay)
+	      (set-transient-map
+	       gopcaml-zipper-mode-map
+	       t #'gopcaml-on-exit-zipper-mode)
+	      (funcall operation))
+	  (gopcaml-delete-zipper)
+	  nil
+	  ))
+    ;; otherwise just perfom operation
+     (funcall operation)
+  ))
+
+(defun gopcaml-beginning-defun ()
+  "Move backwards to the beginning of the defun."
+  (interactive)
+  (let ((area (car (gopcaml-find-defun-start (point) (line-number-at-pos)))))
+    (if area
+	(progn (goto-char  area))
+      nil)))
+
+(defun gopcaml-end-defun ()
+  "Move forwards to the end of the defun."
+  (interactive)
+  (let ((area (car (gopcaml-find-defun-end (point) (line-number-at-pos)))))
+    (if area
+	(progn (goto-char  area))
+      nil)))
+
+(defun gopcaml-forward-list ()
+  (interactive)
+  "Move the zipper forwards (broadly from current point)."
+  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-right))
+				#'gopcaml-broadly-build-zipper))
+
+(defun gopcaml-backward-list (&optional arg arg2)
+  (interactive)
+  "Move the zipper backwards (broadly from current point)."
+  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-left))
+				#'gopcaml-broadly-build-zipper))
+
+(defun gopcaml-backward-up-list (&optional arg)
+  (interactive)
+  "Move the zipper up (from expression at point)."
+  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-up))))
+
+(defun gopcaml-down-list ()
+  (interactive)
+  "Move the zipper down (from expression at point)."
+  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-down))))
+
+(defun gopcaml-forward-sexp (&optional arg)
+  (interactive "^p")
+  "Move the zipper forward (from expression at point)."
+  (if (equal arg (- 1))
+      (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-left)))
+      (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-right)))))
+
+(defun gopcaml-backward-sexp ()
+  (interactive)
+  "Move the zipper backwards (from expression at point)."
+  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-left))))
 
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
@@ -110,19 +203,6 @@ removes all existing overlays of type GROUP if present."
       				  (message "Unexpected error")))))))
       	(merlin--type-expression substring on-success on-error))
       )))
-
-(defun move-gopcaml-zipper (zipper-fn)
-  "Move the zipper using ZIPPER-FN."
-  (let ((area (car (funcall zipper-fn))) start end (buf-name (buffer-name)))
-    (when area
-      (setq start (car area))
-      (setq end (cadr area))
-      (move-overlay gopcaml-zipper-overlay start end)
-      (let ((wind-start (window-start)) (wind-end (window-end)))
-	(if (and wind-start wind-end (< wind-start start wind-end))
-		   (set-window-point (get-buffer-window buf-name) start)
-	  (goto-char start))
-	  ))))
 
 (defun gopcaml-zipper-kill-region ()
   "Kill the current item using the zipper."
@@ -162,7 +242,7 @@ removes all existing overlays of type GROUP if present."
       (setq text (buffer-substring-no-properties start end))
       (copy-region-as-kill start end)
       (message "copied \"%s\" to kill-ring" (truncate-string-to-width
-					 text 40 nil nil t)))))
+					     text 40 nil nil t)))))
 
 (defun gopcaml-zipper-swap (transform-fn)
   "Swap current text using output from zipper function TRANSFORM-FN."
@@ -216,86 +296,49 @@ removes all existing overlays of type GROUP if present."
 
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
-    (define-key gopcaml-map (kbd "e") '(lambda ()
-					 (interactive)
-					 (move-gopcaml-zipper
-					  #'gopcaml-move-zipper-down)))
-    (define-key gopcaml-map (kbd "a") '(lambda ()
-					 (interactive)
-					 (move-gopcaml-zipper
-					  #'gopcaml-move-zipper-up)))
-    (define-key gopcaml-map (kbd "p") '(lambda ()
-					 (interactive)
-					 (move-gopcaml-zipper
-					  #'gopcaml-move-zipper-left)))
-    (define-key gopcaml-map (kbd "n") '(lambda ()
-					 (interactive)
-					 (move-gopcaml-zipper
-					  #'gopcaml-move-zipper-right)))
-    (define-key gopcaml-map (kbd "k") '(lambda ()
+    (define-key gopcaml-map (kbd "C-M-f") #'gopcaml-forward-sexp)
+    (define-key gopcaml-map (kbd "C-M-b") #'gopcaml-backward-sexp)
+
+    (define-key gopcaml-map (kbd "C-M-u") #'gopcaml-backward-up-list)
+    (define-key gopcaml-map (kbd "C-M-d") #'gopcaml-down-list)
+
+    (define-key gopcaml-map (kbd "C-M-n") #'gopcaml-forward-list)
+    (define-key gopcaml-map (kbd "C-M-p") #'gopcaml-backward-list)
+
+    (define-key gopcaml-map (kbd "C-M-k") '(lambda ()
 					 (interactive)
 					 (move-gopcaml-zipper
 					  #'gopcaml-zipper-kill-region)))
-    (define-key gopcaml-map (kbd "w") '(lambda ()
+    (define-key gopcaml-map (kbd "M-w") '(lambda ()
 					 (interactive)
 					 (gopcaml-copy-region)))
-    (define-key gopcaml-map (kbd "N") '(lambda ()
+    (define-key gopcaml-map (kbd "C-M-S-n")  '(lambda ()
 					 (interactive)
 					 (gopcaml-zipper-move-forwards)))
-    (define-key gopcaml-map (kbd "P") '(lambda ()
+    (define-key gopcaml-map (kbd "C-M-S-f") '(lambda ()
+					 (interactive)
+					 (gopcaml-zipper-move-forwards)))
+    (define-key gopcaml-map (kbd "C-M-S-p") '(lambda ()
 					 (interactive)
 					 (gopcaml-zipper-move-backwards)))
-    (define-key gopcaml-map (kbd "t") '(lambda ()
+    (define-key gopcaml-map (kbd "C-M-S-b") '(lambda ()
+					 (interactive)
+					 (gopcaml-zipper-move-backwards)))
+    (define-key gopcaml-map (kbd "C-M-t") '(lambda ()
 					 (interactive)
 					 (gopcaml-zipper-transpose)))
-    (define-key gopcaml-map (kbd "T") '(lambda ()
-					 (interactive)
-					 (gopcaml-zipper-type)))
-    (define-key gopcaml-map (kbd "i") #'gopcaml-zipper-insert-letdef)
+    ;; (define-key gopcaml-map (kbd "T") '(lambda ()
+    ;; 					 (interactive)
+    ;; 					 (gopcaml-zipper-type)))
+    ;; (define-key gopcaml-map (kbd "i") #'gopcaml-zipper-insert-letdef)
     gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
 
 (defun gopcaml-on-exit-zipper-mode ()
   "Exit gopcaml-zipper-mode."
-  (message "arrivederci!!")
   (gopcaml-delete-zipper)
   (delete-overlay gopcaml-zipper-overlay)
   (setq gopcaml-zipper-overlay nil))
-
-
-(defun gopcaml-enter-zipper-mode ()
-  "Start gopcaml-zipper mode."
-  (interactive)
-  (message "Entering zipper mode!")
-  (message "Ari ari ari")
-  (let ((area (car (gopcaml-build-zipper (point) (line-number-at-pos)))) start end overlay)
-    (when area
-      (setq start (car area))
-      (setq end (cadr area))
-      (setq overlay (make-overlay start end))
-      (overlay-put overlay 'face 'gopcaml-zipper-face)
-      (overlay-put overlay 'gopcaml-kind 'zipper)
-      (setq gopcaml-zipper-overlay overlay)
-      (set-transient-map
-       gopcaml-zipper-mode-map
-       t #'gopcaml-on-exit-zipper-mode)
-      )))
-
-(defun gopcaml-beginning-defun ()
-  "Move backwards to the beginning of the defun."
-  (interactive)
-  (let ((area (car (gopcaml-find-defun-start (point) (line-number-at-pos)))))
-    (if area
-	(progn (goto-char  area))
-      nil)))
-
-(defun gopcaml-end-defun ()
-  "Move forwards to the end of the defun."
-  (interactive)
-  (let ((area (car (gopcaml-find-defun-end (point) (line-number-at-pos)))))
-    (if area
-	(progn (goto-char  area))
-      nil)))
 
 
 ;; (defun gopcaml-end-defun ()
@@ -333,31 +376,43 @@ FUNCTION is the function to call on timer"
     fn))
 
 (defun gopcaml-before-change-remove-type-hole (beginning end)
-    "Before inserting text, attempt to remove type holes.
+  "Before inserting text, attempt to remove type holes.
 BEGINNING is the start of the edited text region.
 END is the end of the edited text region."
-    (let ( (point (point)) element)
+  (let ( (point (point)) element)
+    (when (and (< (+ point 4) (point-max)))
       (setq element (buffer-substring-no-properties  point (+ point 4)))
       (if (equal "(??)" element)
 	  (delete-region point (+ point 4))
-	  )))
+	)
+      )
+    ))
 
 
 
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
-  (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
-  (bind-key (kbd "C-M-z") #'gopcaml-enter-zipper-mode gopcaml-mode-map)
+  (define-key gopcaml-mode-map (kbd "C-M-l") #'gopcaml-highlight-current-structure-item )
+  (define-key gopcaml-mode-map (kbd "C-M-z") #'gopcaml-enter-zipper-mode )
+  ;; (define-key gopcaml-map (kbd "C-M-f") #'gopcaml-forward-sexp)
+  ;; (define-key gopcaml-map (kbd "C-M-b") #'gopcaml-backward-sexp)
+
+  (define-key gopcaml-mode-map (kbd "C-M-u") #'gopcaml-backward-up-list)
+  (define-key gopcaml-mode-map (kbd "C-M-d") #'gopcaml-down-list)
+
+  (define-key gopcaml-mode-map (kbd "C-M-n") #'gopcaml-forward-list)
+  (define-key gopcaml-mode-map (kbd "C-M-p") #'gopcaml-backward-list)
 
   (setq-local end-of-defun-function #'gopcaml-end-defun)
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
+  (setq-local forward-sexp-function #'gopcaml-forward-sexp)
   ;; (define-key gopcaml-mode-map [remap beginning-of-defun] #'gopcaml-beginning-defun)
   ;; ;; (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
   ;; ;; C-n should move to the next field
   ;; (define-key gopcaml-mode-map [remap end-of-defun] #'gopcaml-end-defun)
-  
-  (bind-key (kbd "C-n") #'yas-next-field-or-maybe-expand yas-keymap)
+  ;; (bind-key (kbd "C-n") #'yas-next-field-or-maybe-expand yas-keymap)
+
   (setq after-change-functions
 	(cons #'gopcaml-update-dirty-region after-change-functions))
   (setq before-change-functions
@@ -383,7 +438,7 @@ END is the end of the edited text region."
 ;; (local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
 ;; (local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
 
-
+(setq debug-on-error t)
 ;; temporary code to test gopcaml-mode
 (find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/gopcaml_state.ml")
 (gopcaml-mode)
