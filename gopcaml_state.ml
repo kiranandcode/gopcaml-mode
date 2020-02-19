@@ -4,12 +4,14 @@ open Ecaml
 module State = struct
 
   module Filetype = struct
-    (** records whether the current file is an interface or implementation  *)
+    (** records whether the current file is an interface or implementation *)
     type s = Interface | Implementation [@@deriving sexp]
 
+      
     module Enum : Ecaml.Value.Type.Enum with type t = s = struct
       type t = s
-      let all = [Interface; Implementation]
+      let all =
+        [Interface; Implementation]
       let sexp_of_t = sexp_of_s
     end
 
@@ -330,11 +332,11 @@ module State = struct
     *)
     type t =
       | Clean of parse_tree
-      | Dirty
+      | Dirty of parse_tree option
 
     let get_dirty_region = function
       | Clean _ -> None
-      | Dirty -> Some (0,-1)
+      | Dirty _ -> Some (0,-1)
 
     let is_dirty = function
       | Clean _ -> false
@@ -344,18 +346,25 @@ module State = struct
     let create tree = Clean tree
 
     (** updates the parse tree to denote the range of the dirty region *)
-    let update (_:t) (_s,_e,_l: (int * int * int)) : t =
+    let update (s:t) (_s,_e,_l: (int * int * int)) : t =
       (* todo: track detailed changes *)
-      Dirty
+      match (s : t) with | Clean tree -> Dirty (Some tree) | Dirty tree -> Dirty tree
 
 
     (** builds an updated parse_tree (updating any dirty regions) *)
     let to_tree (dr:t) (_file_type: Filetype.t) : parse_tree option =
       match dr with
       | Clean tree -> Some tree
-      | Dirty ->
+      | Dirty _ ->
         TreeBuilder.parse_current_buffer _file_type
 
+    (** returns the parse tree - even if it may be dirty *)
+    let to_tree_immediate (dr:t) (_file_type: Filetype.t) : parse_tree option =
+      match dr with
+      | Clean tree -> Some tree
+      | Dirty tree -> tree
+
+    
   end
 
   (** type of state of plugin - pre-validation *)
@@ -388,6 +397,13 @@ module State = struct
       else
         Some ({file_type=state.file_type; parse_tree}, None)
 
+    (** attempts to retrieve the state immediately - even if it is old or outdated  *)
+    let of_state_immediate ({ file_type; parse_tree }:t) =
+      (match parse_tree with
+       | DirtyRegion.Clean tree -> Some tree
+       | DirtyRegion.Dirty tree -> tree)
+    |> Option.map ~f:(fun tree -> ({file_type; parse_tree = tree}))
+
     type t = s
 
   end
@@ -402,7 +418,7 @@ module State = struct
 
   let default = {
     file_type = Interface;
-    parse_tree = DirtyRegion.Dirty;
+    parse_tree = DirtyRegion.Dirty None;
   }
 
 end
@@ -439,7 +455,9 @@ let setup_gopcaml_state
              editing.";
   let state = State.{
       file_type = file_type;
-      parse_tree = match parse_tree with None -> DirtyRegion.Dirty | Some tree -> DirtyRegion.create tree;
+      parse_tree = match parse_tree with
+          None -> DirtyRegion.Dirty None
+        | Some tree -> DirtyRegion.create tree;
     } in
   Buffer_local.set state_var (Some state) current_buffer
 
@@ -456,7 +474,7 @@ let get_gopcaml_file_type ?current_buffer ~state_var () =
 let set_gopcaml_file_type ?current_buffer ~state_var file_type =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
-  let state = State.{state with parse_tree=Dirty; file_type = file_type } in
+  let state = State.{state with parse_tree=Dirty None; file_type = file_type } in
   Buffer_local.set state_var (Some state) current_buffer
 [@@warning "-23"]
 
@@ -558,6 +576,179 @@ let find_enclosing_structure (state: State.Validated.t) point : State.parse_item
   | (State.MkParseTree (State.Intf si_list)) ->
     find_enclosing_expression si_list |> Option.map ~f:(fun x -> State.MkParseItem (State.IntfIt x))
 
+(* determines whether we are inside a letdef *)
+let inside_let_def state point =
+  let contains ({ loc_start; loc_end; _ }: Location.t) =
+    (loc_start.pos_cnum <= point) && (point <= loc_end.pos_cnum)
+  in
+  let rec is_let_def_struct ({pstr_desc;_}: Parsetree.structure_item) = (match pstr_desc with
+      | Parsetree.Pstr_eval (expr, _) -> is_let_def_expr expr
+      | Parsetree.Pstr_value (_, vbs) -> 
+        List.fold ~init:false ~f:(fun acc value -> acc || is_in_value_binding value) vbs
+      | Parsetree.Pstr_module mb -> is_let_def_mod_expr mb.pmb_expr 
+      | Parsetree.Pstr_recmodule mods ->
+        List.fold ~init:false ~f:(fun acc value -> acc || is_let_def_mod_expr value.pmb_expr) mods
+      | Parsetree.Pstr_class_type cty_decl -> 
+        List.fold ~init:false ~f:(fun acc { pci_expr; _ } -> acc || is_let_def_class_type pci_expr)
+          cty_decl
+      | Parsetree.Pstr_class c_decls -> 
+        List.fold ~init:false ~f:(fun acc { pci_expr; _ } -> acc || is_let_def_class_expr  pci_expr)
+          c_decls
+      | _  -> false)
+
+  and is_let_def_sig ({ psig_desc; psig_loc }: Parsetree.signature_item) =
+    if contains psig_loc then (match psig_desc with
+        | Parsetree.Psig_module { pmd_type; _ } -> is_let_def_mod_type pmd_type
+        | Parsetree.Psig_recmodule decls -> 
+          List.fold ~init:false ~f:(fun acc { pmd_type; _ } -> acc || is_let_def_mod_type  pmd_type)
+          decls
+        | Parsetree.Psig_modtype {  pmtd_type; _  } ->
+          Option.map ~f:is_let_def_mod_type pmtd_type |> Option.value ~default:false
+        | Parsetree.Psig_include { pincl_mod; _ } -> is_let_def_mod_type pincl_mod
+        | Parsetree.Psig_class c_decls -> 
+          List.fold ~init:false ~f:(fun acc { pci_expr; _ } -> acc || is_let_def_class_type pci_expr)
+          c_decls
+        | Parsetree.Psig_class_type c_decls -> 
+          List.fold ~init:false ~f:(fun acc { pci_expr; _ } -> acc || is_let_def_class_type  pci_expr)
+          c_decls
+        | _  -> false
+      ) else false
+  and is_in_value_binding ({ pvb_expr; pvb_loc; _ }: Parsetree.value_binding) =
+    if contains pvb_loc then contains pvb_expr.pexp_loc else false
+  and is_let_def_case ({ pc_guard; pc_rhs;_ }: Parsetree.case) =
+    (Option.map  ~f:is_let_def_expr pc_guard |> Option.value ~default:false) || (is_let_def_expr pc_rhs)
+  and is_let_def_mod_type ({ pmty_desc; pmty_loc; _ }: Parsetree.module_type) =
+    if contains pmty_loc then (match pmty_desc with
+        | Parsetree.Pmty_functor (_, omt, mt) ->
+          (Option.map ~f:is_let_def_mod_type omt |> Option.value ~default:false) ||
+          is_let_def_mod_type mt
+        | Parsetree.Pmty_with (mt, _) -> is_let_def_mod_type mt
+        | Parsetree.Pmty_typeof mexpr -> is_let_def_mod_expr mexpr
+        | _  -> false) else false
+  and is_let_def_mod_expr ({ pmod_desc; pmod_loc; _ }: Parsetree.module_expr) =
+    if contains pmod_loc then
+      (match pmod_desc with
+       | Parsetree.Pmod_structure st -> 
+         List.fold ~init:false ~f:(fun acc value -> acc || is_let_def_struct value) st
+       | Parsetree.Pmod_functor (_, mt, mexpr) ->
+         (Option.map ~f:is_let_def_mod_type mt |> Option.value ~default:false) ||
+         is_let_def_mod_expr mexpr
+       | Parsetree.Pmod_constraint (mexpr, mt) -> 
+         is_let_def_mod_expr mexpr || is_let_def_mod_type mt
+       | Parsetree.Pmod_apply (mexp1, mexp2) ->
+         is_let_def_mod_expr mexp1 || is_let_def_mod_expr mexp2
+       | Parsetree.Pmod_unpack expr -> is_let_def_expr expr
+       | _  -> false)
+    else false
+  and is_let_def_class_field_type_kind ({ pctf_desc; pctf_loc; _ }: Parsetree.class_type_field) =
+    if contains pctf_loc then (match pctf_desc with
+        | Parsetree.Pctf_inherit ct -> is_let_def_class_type ct
+        | _  -> false) else false
+  and is_let_def_class_signature ({  pcsig_fields;_ }: Parsetree.class_signature) =
+    List.fold ~init:false pcsig_fields
+      ~f:(fun acc value -> acc || is_let_def_class_field_type_kind value)
+  and is_let_def_class_type ({ pcty_desc; pcty_loc; _ }: Parsetree.class_type) =
+    if contains pcty_loc then
+      (match pcty_desc with
+       | Parsetree.Pcty_signature cs ->  is_let_def_class_signature cs
+       | Parsetree.Pcty_arrow (_, _, cty) -> is_let_def_class_type cty
+       | Parsetree.Pcty_open (_, cty) ->
+         is_let_def_class_type cty
+       | _  -> false
+      )
+    else false
+  and is_let_def_class_expr ({ pcl_desc; pcl_loc; _ }: Parsetree.class_expr) =
+    if contains pcl_loc then (match pcl_desc with
+        | Parsetree.Pcl_structure cs -> is_let_def_class_structure cs
+        | Parsetree.Pcl_fun (_, oexpr, _, clsexpr) ->
+          (Option.map ~f:is_let_def_expr oexpr |> Option.value ~default:false) ||
+          is_let_def_class_expr clsexpr
+        | Parsetree.Pcl_apply (clsexpr, fields) -> 
+          is_let_def_class_expr clsexpr ||
+          List.fold ~init:false ~f:(fun acc (_,value) -> acc || is_let_def_expr value) fields
+        | Parsetree.Pcl_let (_, vbs, cexp) ->
+          List.fold ~init:false ~f:(fun acc value -> acc || is_in_value_binding value) vbs
+          || is_let_def_class_expr cexp
+        | Parsetree.Pcl_constraint (cexp, ctyp) ->
+          is_let_def_class_expr cexp || is_let_def_class_type ctyp
+        | Parsetree.Pcl_open (_, cexp) -> is_let_def_class_expr cexp
+        | _  -> false) else false
+  and is_let_def_class_field_kind cfk = match cfk with
+    | Parsetree.Cfk_virtual _ -> false
+    | Parsetree.Cfk_concrete (_, exp) -> is_let_def_expr exp
+  and is_let_def_class_field ({ pcf_desc; pcf_loc; _ }: Parsetree.class_field) =
+    if contains pcf_loc then (match pcf_desc with
+        | Parsetree.Pcf_inherit (_, cexp, _) -> is_let_def_class_expr cexp
+        | Parsetree.Pcf_val (_, _, cfk) -> is_let_def_class_field_kind cfk
+        | Parsetree.Pcf_method (_, _, cfk) -> is_let_def_class_field_kind cfk
+        | Parsetree.Pcf_initializer exp -> is_let_def_expr exp
+        | _ -> false
+      ) else false
+  and is_let_def_class_structure ({  pcstr_fields; _ }: Parsetree.class_structure) =
+    List.fold ~init:false pcstr_fields ~f:(fun acc value -> acc || is_let_def_class_field value)
+  and is_let_def_expr ({ pexp_desc; pexp_loc; _ }:Parsetree.expression) =
+    if contains pexp_loc then
+      (match pexp_desc with
+       (* check if in any of the value bindings *)
+       | Parsetree.Pexp_let (_, vbs, expr) ->
+         List.fold ~init:false ~f:(fun acc value -> acc || is_in_value_binding value) vbs
+         || is_let_def_expr expr
+       | Parsetree.Pexp_function cases -> 
+         List.fold ~init:false ~f:(fun acc value -> acc || is_let_def_case value) cases
+       | Parsetree.Pexp_apply (expr, args) ->
+         is_let_def_expr expr
+         || List.fold ~init:false ~f:(fun acc (_, value) -> acc || is_let_def_expr value) args
+       | Parsetree.Pexp_try (expr, cases)
+       | Parsetree.Pexp_match (expr, cases) ->
+         is_let_def_expr expr || 
+         List.fold ~init:false ~f:(fun acc value -> acc || is_let_def_case value) cases
+       | Parsetree.Pexp_fun (_, oe1, _, e2) ->
+         (Option.map ~f:is_let_def_expr oe1 |> Option.value ~default:false) || is_let_def_expr e2
+       | Parsetree.Pexp_open (_, expr)
+       | Parsetree.Pexp_newtype (_, expr)
+       | Parsetree.Pexp_lazy expr 
+       | Parsetree.Pexp_poly (expr, _)
+       | Parsetree.Pexp_assert expr 
+       | Parsetree.Pexp_setinstvar (_, expr)
+       | Parsetree.Pexp_send (expr, _)
+       | Parsetree.Pexp_field (expr, _) 
+       | Parsetree.Pexp_coerce (expr, _, _)
+       | Parsetree.Pexp_constraint (expr, _)
+       | Parsetree.Pexp_construct (_, Some expr) 
+       | Parsetree.Pexp_variant (_, Some expr) -> is_let_def_expr expr
+       | Parsetree.Pexp_record (fields, oe1) ->
+         List.fold ~init:false ~f:(fun acc (_, value) -> acc || is_let_def_expr value) fields ||
+         (Option.map ~f:is_let_def_expr oe1 |> Option.value ~default:false)
+       | Parsetree.Pexp_tuple arr
+       | Parsetree.Pexp_array arr ->
+         List.fold ~init:false ~f:(fun acc value -> acc || (is_let_def_expr value)) arr
+       | Parsetree.Pexp_ifthenelse (e1, e2, oe3) -> 
+         is_let_def_expr e1 || is_let_def_expr e2 ||
+         (Option.map ~f:is_let_def_expr oe3 |> Option.value  ~default:false)
+       | Parsetree.Pexp_setfield (e1, _, e2)
+       | Parsetree.Pexp_while (e1, e2) 
+       | Parsetree.Pexp_sequence (e1, e2) -> is_let_def_expr e1 || is_let_def_expr e2
+       | Parsetree.Pexp_for (_, e1, e2, _, e3) -> 
+         List.fold ~init:false ~f:(fun acc value -> acc || (is_let_def_expr value)) [e1;e2;e3]
+       | Parsetree.Pexp_override overrides -> 
+         List.fold ~init:false ~f:(fun acc (_, value) -> acc || (is_let_def_expr value)) overrides
+       | Parsetree.Pexp_letmodule (_, mod_expr, expr) ->
+         is_let_def_mod_expr mod_expr || is_let_def_expr expr
+       | Parsetree.Pexp_letexception (_, expr) -> is_let_def_expr expr
+       | Parsetree.Pexp_object cs -> is_let_def_class_structure cs
+       | Parsetree.Pexp_pack mexp -> is_let_def_mod_expr mexp
+       | Parsetree.Pexp_letop _ -> true
+       | _  -> false
+      )
+    else false
+  in
+  find_enclosing_structure state (Position.of_int_exn point)
+  |> Option.map ~f:(fun (State.MkParseItem it) ->
+      match it with
+      | State.ImplIt (_, st) -> is_let_def_struct st
+      | State.IntfIt (_, si) -> is_let_def_sig si
+    )
+
 let apply_iterator (item: State.parse_item) iter f  =
   let open State in
   let (MkParseItem elem) = item in
@@ -620,6 +811,15 @@ let retrieve_gopcaml_state ?current_buffer ~state_var () =
   if Option.is_some state then Buffer_local.set state_var state current_buffer;
   Some v_state
 
+(** retrieves the gopcaml state value, without attempting to construct the
+    parse tree if it has not already been made *)
+let retrieve_gopcaml_state_immediate ?current_buffer ~state_var () =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  let state = Buffer_local.get_exn state_var current_buffer in
+  State.Validated.of_state_immediate state
+
+
+
 
 (** retrieve the points enclosing structure at the current position *)
 let retrieve_enclosing_structure_bounds ?current_buffer ~state_var point =
@@ -657,8 +857,12 @@ let find_nearest_defun ?current_buffer ~state_var point =
   |> Option.map ~f:(fun x -> x + 1)
 
 
-
-
+(** returns whether the point is inside a let def (and thus when
+   expanding let we should include an in) *)
+let inside_defun ?current_buffer ~state_var point =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_gopcaml_state_immediate ~current_buffer ~state_var ()
+  |> Option.bind ~f:(fun state -> inside_let_def state point)
 
 (** retrieve zipper *)
 let retrieve_zipper ?current_buffer ~zipper_var =
@@ -726,7 +930,7 @@ let move_zipper_up ?current_buffer ~zipper_var () =
       zipper
     )
   |>  abstract_zipper_to_bounds  
-  
+
 (** attempts "update" the buffer using the zipper, returning the two regions to be swapped *)
 let abstract_zipper_update f ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -766,8 +970,9 @@ let zipper_delete_current ?current_buffer ~zipper_var () =
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
     )
 
+
 (** inserts a let def using the zipper, returning the text to insert,
-   and the point at which to insert it *)
+    and the point at which to insert it *)
 let zipper_insert_let_def ?current_buffer ~zipper_var column_number ()  =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_zipper ~current_buffer ~zipper_var
