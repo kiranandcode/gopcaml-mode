@@ -28,6 +28,12 @@ module TextRegion : sig
 
   val distance : t -> int -> int option
 
+  val distance_line : t -> point:int -> line:int -> (int * int) option
+
+  val line_start : t -> int
+
+  val column_start : t -> int
+
   val to_diff : t -> Diff.t option
 
   val swap_diff : t -> t -> (Diff.t * Diff.t) option
@@ -64,7 +70,14 @@ end = struct
       let l1 = match l1 with -1 -> -1 | _ -> max (l1 + line) (-1) in
       {line=l1; col = c1}
 
-    let cmp f a b = match (a,b) with -1,-1 -> -1 | a,-1 -> a | -1,b -> b | a,b -> f a b 
+    let cmp f a b = match (a,b) with
+      -1,-1 -> -1
+      | 0,0 -> -1
+      | a,-1 -> a
+      | -1,b -> b
+      | a, 0 -> a
+      | 0, b -> b
+      | a,b -> f a b 
     let min = cmp min
     let max = cmp max
 
@@ -135,6 +148,19 @@ end = struct
     | -1,-1 | -1, _ | _, -1 -> None
     | start, ed  -> Some (min (abs (start - point)) (abs (ed - point)))
 
+  let distance_line (({ col=c1; line=l1 },{ col=c2; line=l2 }):t) ~point ~line =
+    let (let+) x f = Option.bind ~f x in
+    let diff c1 c2 point = match c1,c2 with
+    | -1,-1 | -1, _ | _, -1 -> None
+    | start, ed  -> Some (min (abs (start - point)) (abs (ed - point)))  in
+    let+ col_diff = diff c1 c2 point in
+    let+ line_diff = diff l1 l2 line in
+    Some (col_diff, line_diff)
+
+  let line_start (({ line=l1; _ },_):t) = l1
+
+  let column_start (({ col=c1; _ },_):t) = c1
+
   let to_diff (({ line=l1; col=c1; },{ line=l2; col=c2; }): t) =
     let (let+) x f = Option.bind ~f x in
     let unwrap vl = match  vl with -1 -> None | v -> Some v in
@@ -163,6 +189,7 @@ end = struct
 
   let to_shift_from_start ((_,{ line=a_l2; col=a_c2; }): t) =
     (a_l2,a_c2)
+
 end
 
 type unwrapped_type =
@@ -374,11 +401,13 @@ let at_start current point =
   | _ -> false
 
 (** moves the location to the nearest expression enclosing or around it   *)
-let rec move_zipper_to_point point =
+let rec move_zipper_to_point point line =
   let distance region =
-    match TextRegion.distance region point with
-    | None -> Int.max_value
-    | Some v -> v  in
+    let line_pos =
+      if TextRegion.line_start region > line then 1 else 0  in
+    match TextRegion.distance_line region ~point ~line with
+    | None -> line_pos,Int.max_value, Int.max_value
+    | Some (col,line) -> (line_pos, line,col)  in
   function
   | MkLocation (Sequence (bounds, l,c,r), parent) ->
     (* finds the closest strictly enclosing item *)
@@ -394,21 +423,33 @@ let rec move_zipper_to_point point =
     begin match find_closest_enclosing (List.rev l @ c :: r)  with
       (* we found an enclosing expression - go into it *)
       | Some (l,c,r) ->
-        move_zipper_to_point point (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
+        move_zipper_to_point point line (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
       (* none of the subelements contain the point - find the closest one *)
       | None ->
         let sub_items = (List.rev l @ c :: r)
                         |> List.map ~f:(fun elem -> distance (t_to_bounds elem), elem) in
         let min_item = List.min_elt
-            ~compare:(fun (d,_) (d',_) -> Int.compare d d') sub_items in
+            ~compare:(fun (d,_) (d',_) ->
+                Tuple3.compare ~cmp1:Int.compare ~cmp2:Int.compare ~cmp3:Int.compare d d'
+              ) sub_items in
         match min_item with
         | None -> (* this can never happen - list always has at least 1 element *) assert false
         | Some (min, _) ->
-          begin match List.split_while sub_items ~f:(fun (d,_) -> d <> min) with
+          begin match List.split_while sub_items ~f:(fun (d,_) ->
+              not @@ Tuple3.equal ~eq1:Int.equal ~eq2:Int.equal ~eq3:Int.equal d min
+            ) with
+          | ([],(_, c) :: r) ->
+            let start_col = TextRegion.column_start (t_to_bounds c) in
+            let sel_line = TextRegion.line_start (t_to_bounds c) in
+            let r = List.map ~f:snd r in
+            if sel_line > line || (sel_line = line && (start_col  >= point))
+            then (MkLocation (Sequence (bounds, [],c,r), parent))
+            else
+              move_zipper_to_point point line (MkLocation (c, Node {below=l; parent; above=r; bounds}))
             | (l,(_, c) :: r) ->
               let l = List.map ~f:snd l |> List.rev in
               let r = List.map ~f:snd r in
-              move_zipper_to_point point (MkLocation (c, Node {below=l; parent; above=r; bounds}))
+              move_zipper_to_point point line (MkLocation (c, Node {below=l; parent; above=r; bounds}))
             | _ -> assert false
           end
     end
@@ -417,12 +458,15 @@ let rec move_zipper_to_point point =
     then match t_descend current with
       | (Sequence _ as s) ->
         let (MkLocation (current', _) as zipper) =
-          move_zipper_to_point point (MkLocation (s,parent)) in
+          move_zipper_to_point point line (MkLocation (s,parent)) in
         let selected_distance =
           distance (t_to_bounds current') in
         let enclosing_distance =
           distance (t_to_bounds current) in
-        if enclosing_distance < selected_distance
+        if (snd3 enclosing_distance < snd3 selected_distance) ||
+           ((trd3 enclosing_distance = trd3 selected_distance) &&
+            (trd3 enclosing_distance < trd3 selected_distance)) ||
+           (fst3 selected_distance > line)
         then v
         else zipper
       | v -> (MkLocation (v, parent))
@@ -650,8 +694,8 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
 
 
 (** finds the item bounds for the nearest structure/signature (essentially defun) item  *)
-let find_nearest_definition_item_bounds point zipper : _ option =
-  let zipper = move_zipper_to_point point zipper in
+let find_nearest_definition_item_bounds point line zipper : _ option =
+  let zipper = move_zipper_to_point point line zipper in
   let rec loop zipper =
     let MkLocation (current,_) = zipper in
     match current with
@@ -660,6 +704,12 @@ let find_nearest_definition_item_bounds point zipper : _ option =
       if point = loc_start.pos_cnum
       then (go_left zipper) |> Option.bind ~f:loop
       else Some loc_start.pos_cnum
+    | Sequence (Some (bound,_), _,_,_) ->
+      let start_column = TextRegion.column_start bound in
+      if point = start_column then go_left zipper |> Option.bind ~f:loop  else Some (start_column)
+    | Sequence (None, _,_,_) ->
+      let start_column = (TextRegion.column_start (t_to_bounds current)) in
+      if point = start_column then go_left zipper |> Option.bind ~f:loop  else Some (start_column)
     | _ ->  (go_up zipper) |> Option.bind ~f:loop
   in
   loop zipper

@@ -4,6 +4,8 @@ open Ecaml
 module State = struct
 
   module Filetype = struct
+    
+
     (** records whether the current file is an interface or implementation *)
     type s = Interface | Implementation [@@deriving sexp]
 
@@ -13,6 +15,7 @@ module State = struct
       let all = [Interface; Implementation]
       let sexp_of_t = sexp_of_s
     end
+
 
     let ty =
       let to_ecaml file_type =
@@ -832,12 +835,12 @@ let retrieve_enclosing_bounds ?current_buffer ~state_var point =
 
 
 (** retrieve a zipper enclosing structure at the current position *)
-let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point =
+let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
-                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point (Position.to_int point)) in
+                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point (Position.to_int point) line) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
   |> Option.map ~f:Ast_zipper.to_bounds
@@ -846,12 +849,13 @@ let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point =
     )
 
 (** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
-let find_nearest_defun ?current_buffer ~state_var point =
+let find_nearest_defun ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
                         (Position.to_int point - 1)
+                        line
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 

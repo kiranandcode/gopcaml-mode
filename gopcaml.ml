@@ -163,9 +163,10 @@ let define_functions () =
     ~docstring:{| Builds an ast zipper around the current point. |}
     (Returns (Value.Type.option (Value.Type.list Position.type_)))
     (let open Defun.Let_syntax in
-     let%map_open point = required "point" (Position.type_) in
+     let%map_open point = required "point" (Position.type_)
+     and line = required "line" Value.Type.int in
      Gopcaml_state.build_zipper_enclosing_point 
-       ~state_var:Variables.state_var ~zipper_var:Variables.zipper_var point
+       ~state_var:Variables.state_var ~zipper_var:Variables.zipper_var point line
      |> Option.map ~f:(fun (a,b) -> [a; b])
     );
   defun
@@ -286,8 +287,9 @@ let define_functions () =
     (Returns (Value.Type.option Value.Type.int))
     (let open Defun.Let_syntax in
      let%map_open point = required "point" Position.type_
+     and line = required "line" Value.Type.int
      and op = return @@  Gopcaml_state.find_nearest_defun ~state_var:Variables.state_var in
-     op point);
+     op point line);
   defun
     ("gopcaml-zipper-insert-let-def-start" |> Symbol.intern)
     [%here]

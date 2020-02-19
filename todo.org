@@ -44,10 +44,13 @@
    CLOSED: [2020-02-18 Tue 18:57]
 ** DONE Add insertion capability?
    CLOSED: [2020-02-18 Tue 18:57]
-** TODO Fix move to defun functionality to use lines
+** DONE Fix move to defun functionality to use lines
+   CLOSED: [2020-02-19 Wed 12:01]
 ** TODO Setup move to let def to begin zipper mode
-*** TODO C-M-a - move to start of defun & move zipper broadly to point and start zipper at structure item
-*** TODO C-M-e - move to end of defun & move zipper broadly to point and start zipper at structure item
+*** DONE C-M-a - move to start of defun & move zipper broadly to point and start zipper at structure item
+    CLOSED: [2020-02-19 Wed 15:09]
+*** DONE C-M-e - move to end of defun & move zipper broadly to point and start zipper at structure item
+    CLOSED: [2020-02-19 Wed 15:09]
 *** TODO C-M-u - backwards up list - move granularly to region, and move up zipper
 *** TODO C-M-u - backwards up list - move granularly to region, and move down zipper
 *** TODO - list expressions move forward without expanding the element

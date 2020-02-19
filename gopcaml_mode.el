@@ -262,12 +262,13 @@ removes all existing overlays of type GROUP if present."
   (delete-overlay gopcaml-zipper-overlay)
   (setq gopcaml-zipper-overlay nil))
 
+
 (defun gopcaml-enter-zipper-mode ()
   "Start gopcaml-zipper mode."
   (interactive)
   (message "Entering zipper mode!")
   (message "Ari ari ari")
-  (let ((area (car (gopcaml-build-zipper (point)))) start end overlay)
+  (let ((area (car (gopcaml-build-zipper (point) (line-number-at-pos)))) start end overlay)
     (when area
       (setq start (car area))
       (setq end (cadr area))
@@ -283,10 +284,27 @@ removes all existing overlays of type GROUP if present."
 (defun gopcaml-beginning-defun ()
   "Move backwards to the beginning of the defun."
   (interactive)
-  (let ((area (car (gopcaml-find-defun-start (point)))))
+  (let ((area (car (gopcaml-find-defun-start (point) (line-number-at-pos)))))
     (if area
 	(progn (goto-char  area))
       (merlin-phrase-prev))))
+
+(defun gopcaml-end-defun ()
+  "Move forwards to the end of the defun."
+  (interactive)
+  (let ((area (car (gopcaml-build-zipper (point) (line-number-at-pos)))) end)
+    (if (and area (equal (cadr area) (point)))
+	(progn
+	  (setq area (car (gopcaml-move-zipper-right)))
+	  (if area (setq end (car area))))
+      (if area (setq end (cadr area))))
+    (if area (progn
+	       (goto-char end)
+	       (gopcaml-delete-zipper))
+      (gopcaml-delete-zipper)
+      (merlin-phrase-next))))
+
+
 
 ;; graciously taken from https://emacs.stackexchange.com/questions/12532/buffer-local-idle-timer
 (defun run-with-local-idle-timer (secs repeat function &rest args)
@@ -323,9 +341,10 @@ END is the end of the edited text region."
   (message "setting up gopcaml-bindings")
   (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
   (bind-key (kbd "C-M-z") #'gopcaml-enter-zipper-mode gopcaml-mode-map)
-  (bind-key (kbd "C-M-a") #'gopcaml-beginning-defun gopcaml-mode-map)
-  (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
+  (define-key gopcaml-mode-map [remap beginning-of-defun] #'gopcaml-beginning-defun)
+  ;; (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
   ;; C-n should move to the next field
+  (define-key gopcaml-mode-map [remap end-of-defun] #'gopcaml-end-defun)
   
   (bind-key (kbd "C-n") #'yas-next-field-or-maybe-expand yas-keymap)
   (setq after-change-functions
@@ -338,8 +357,6 @@ END is the end of the edited text region."
   ;; (setq gopcaml-expand-timer
   ;; 	(run-with-local-idle-timer 0.1 t (lambda () (interactive) (yas-expand))))
   )
-
-
 
 
 (defun gopcaml-teardown-bindings ()
