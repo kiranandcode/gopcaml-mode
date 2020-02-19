@@ -292,17 +292,24 @@ removes all existing overlays of type GROUP if present."
 (defun gopcaml-end-defun ()
   "Move forwards to the end of the defun."
   (interactive)
-  (let ((area (car (gopcaml-build-zipper (point) (line-number-at-pos)))) end)
-    (if (and area (equal (cadr area) (point)))
-	(progn
-	  (setq area (car (gopcaml-move-zipper-right)))
-	  (if area (setq end (car area))))
-      (if area (setq end (cadr area))))
-    (if area (progn
-	       (goto-char end)
-	       (gopcaml-delete-zipper))
-      (gopcaml-delete-zipper)
-      (merlin-phrase-next))))
+  (let ((area (car (gopcaml-find-defun-end (point) (line-number-at-pos)))))
+    (if area
+	(progn (goto-char  area))
+      (merlin-phrase-prev))))
+
+;; (defun gopcaml-end-defun ()
+;;   (interactive)
+;;   (let ((area (car (gopcaml-build-zipper (point) (line-number-at-pos)))) end)
+;;     (if (and area (equal (cadr area) (point)))
+;; 	(progn
+;; 	  (setq area (car (gopcaml-move-zipper-right)))
+;; 	  (if area (setq end (cadr area))))
+;;       (if area (setq end (cadr area))))
+;;     (if area (progn
+;; 	       (goto-char end)
+;; 	       (gopcaml-delete-zipper))
+;;       (gopcaml-delete-zipper)
+;;       (merlin-phrase-next))))
 
 
 

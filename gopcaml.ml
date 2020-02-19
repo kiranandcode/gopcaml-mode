@@ -291,6 +291,16 @@ let define_functions () =
      and op = return @@  Gopcaml_state.find_nearest_defun ~state_var:Variables.state_var in
      op point line);
   defun
+    ("gopcaml-find-defun-end" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Returns the start of the nearest defun to POINT. |}
+    (Returns (Value.Type.option Value.Type.int))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" Position.type_
+     and line = required "line" Value.Type.int
+     and op = return @@  Gopcaml_state.find_nearest_defun_end ~state_var:Variables.state_var in
+     op point line);
+  defun
     ("gopcaml-zipper-insert-let-def-start" |> Symbol.intern)
     [%here]
     ~docstring:{| Uses the zipper to insert a let-def. |}
