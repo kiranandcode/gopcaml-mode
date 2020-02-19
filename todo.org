@@ -44,6 +44,7 @@
    CLOSED: [2020-02-18 Tue 18:57]
 ** DONE Add insertion capability?
    CLOSED: [2020-02-18 Tue 18:57]
+** TODO Fix move to defun functionality to use lines
 ** TODO Implement move into
 ** TODO Implement move outof
 ** TODO Fix whitespace
