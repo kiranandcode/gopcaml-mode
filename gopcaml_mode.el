@@ -31,6 +31,15 @@
   :type 'integer
   :group 'gopcaml)
 
+(defvar-local gopcaml-zipper-overlay nil
+  "Overlay used to highlight the zipper region.")
+
+(defvar-local gopcaml-update-timer nil
+  "Timer object used to periodically update gopcaml state.")
+
+(defvar-local  gopcaml-expand-timer nil
+  "Timer object used to periodically expand the element under point")
+
 (defun gopcaml-remove-stored-overlays (&optional group)
   "Remove stored overlays - optionally only those of gopcaml-kind GROUP."
   (setq gopcaml-temporary-highlight-overlays
@@ -80,14 +89,7 @@ removes all existing overlays of type GROUP if present."
       (setq end (cdr area))
       (gopcaml-temporarily-highlight-region (cons start end)))))
 
-(defvar-local gopcaml-zipper-overlay nil
-  "Overlay used to highlight the zipper region.")
 
-(defvar-local gopcaml-update-timer nil
-  "Timer object used to periodically update gopcaml state.")
-
-(defvar-local  gopcaml-expand-timer nil
-  "Timer object used to periodically expand the element under point")
 
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
@@ -250,7 +252,6 @@ removes all existing overlays of type GROUP if present."
 					 (interactive)
 					 (gopcaml-zipper-type)))
     (define-key gopcaml-map (kbd "i") #'gopcaml-zipper-insert-letdef)
- 
     gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
 

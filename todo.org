@@ -45,6 +45,26 @@
 ** DONE Add insertion capability?
    CLOSED: [2020-02-18 Tue 18:57]
 ** TODO Fix move to defun functionality to use lines
+** TODO Setup move to let def to begin zipper mode
+*** TODO C-M-a - move to start of defun & move zipper broadly to point and start zipper at structure item
+*** TODO C-M-e - move to end of defun & move zipper broadly to point and start zipper at structure item
+*** TODO C-M-u - backwards up list - move granularly to region, and move up zipper
+*** TODO C-M-u - backwards up list - move granularly to region, and move down zipper
+*** TODO - list expressions move forward without expanding the element
+**** TODO C-M-n - forwards list - move granularly to region and move left zipper
+**** TODO C-M-p - backwards list - move granularly to region and move left zipper
+*** TODO - forwards expressions attempt to expand the item below it
+**** TODO C-M-f - forwards sexp - move granularly to region and move forward zipper
+**** TODO C-M-b - backwards sexp - move granularly to region and move backwards zipper
+*** TODO - move zipper to point and kill
+**** TODO C-M-k - kill sexp
+**** TODO C-M-spc - mark sexp - move zipper to point and select region
+*** TODO M-{, M-} - move paragraph - (i.e top level structure items)
+*** TODO M-a, M-e - move sentences - module
+*** TODO M-k - kill sentence - kill module
+*** TODO C-M-l reposition to buffer - fix to work with ocaml
+*** TODO C-M-t transpose sexp
+* Longer term Todos
 ** TODO Implement move into
 ** TODO Implement move outof
 ** TODO Fix whitespace

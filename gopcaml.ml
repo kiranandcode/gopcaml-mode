@@ -296,10 +296,16 @@ let define_functions () =
     (let open Defun.Let_syntax in
      let%map_open column_no = required "point" Value.Type.int  in
      let op = Gopcaml_state.zipper_insert_let_def ~zipper_var:Variables.zipper_var column_no in
-     op ())
-
-(* zipper_insert_let_def *)
-
+     op ());
+  defun
+    ("gopcaml-is-inside-let-def" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Determines whether the current item is inside a let-def. |}
+    (Returns (Value.Type.option Value.Type.bool))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" Value.Type.int  in
+     let op = Gopcaml_state.inside_defun ~state_var:Variables.state_var in
+     op point)
 
 
 let gopcaml_mode =
