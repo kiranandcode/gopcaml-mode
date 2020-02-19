@@ -287,7 +287,7 @@ removes all existing overlays of type GROUP if present."
   (let ((area (car (gopcaml-find-defun-start (point) (line-number-at-pos)))))
     (if area
 	(progn (goto-char  area))
-      (merlin-phrase-prev))))
+      nil)))
 
 (defun gopcaml-end-defun ()
   "Move forwards to the end of the defun."
@@ -295,7 +295,8 @@ removes all existing overlays of type GROUP if present."
   (let ((area (car (gopcaml-find-defun-end (point) (line-number-at-pos)))))
     (if area
 	(progn (goto-char  area))
-      (merlin-phrase-prev))))
+      nil)))
+
 
 ;; (defun gopcaml-end-defun ()
 ;;   (interactive)
@@ -348,10 +349,13 @@ END is the end of the edited text region."
   (message "setting up gopcaml-bindings")
   (bind-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item gopcaml-mode-map)
   (bind-key (kbd "C-M-z") #'gopcaml-enter-zipper-mode gopcaml-mode-map)
-  (define-key gopcaml-mode-map [remap beginning-of-defun] #'gopcaml-beginning-defun)
-  ;; (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
-  ;; C-n should move to the next field
-  (define-key gopcaml-mode-map [remap end-of-defun] #'gopcaml-end-defun)
+
+  (setq-local end-of-defun-function #'gopcaml-end-defun)
+  (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
+  ;; (define-key gopcaml-mode-map [remap beginning-of-defun] #'gopcaml-beginning-defun)
+  ;; ;; (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
+  ;; ;; C-n should move to the next field
+  ;; (define-key gopcaml-mode-map [remap end-of-defun] #'gopcaml-end-defun)
   
   (bind-key (kbd "C-n") #'yas-next-field-or-maybe-expand yas-keymap)
   (setq after-change-functions
