@@ -7,11 +7,10 @@ module State = struct
     (** records whether the current file is an interface or implementation *)
     type s = Interface | Implementation [@@deriving sexp]
 
-      
+
     module Enum : Ecaml.Value.Type.Enum with type t = s = struct
       type t = s
-      let all =
-        [Interface; Implementation]
+      let all = [Interface; Implementation]
       let sexp_of_t = sexp_of_s
     end
 
