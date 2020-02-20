@@ -71,6 +71,7 @@
     CLOSED: [2020-02-20 Thu 13:55]
 *** DONE Setup adding remove parens in pairs 
     CLOSED: [2020-02-20 Thu 16:24]
+*** TODO add support for selections
 *** Setup conditional keybindings 
 **** add filter function to check whether state active, and try to build - return nil if state still not possible
 **** use menu-item to only bind movement commands when possible to build zipper
