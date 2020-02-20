@@ -330,11 +330,13 @@ let define_functions () =
      let%map_open point = required "point" Value.Type.int  in
      let op = Gopcaml_state.inside_defun ~state_var:Variables.state_var in
      op point)
-
-
+  
+    
+    
 let gopcaml_mode =
+  let sym = ("gopcaml-mode" |> Symbol.intern) in
   Major_mode.define_derived_mode
-    ("gopcaml-mode" |> Symbol.intern)
+    sym
     [%here]
     ~docstring:"OCaml major mode for structural syntax-aware \
                 editing. OCaml editing on steriods!"
@@ -348,7 +350,7 @@ let gopcaml_mode =
                                ~interface_extension_var:Customizable.interface_extensions_var
                                ~implementation_extension_var:Customizable.implementation_extensions_var
                             ) in
-                   define_functions ()
+                   define_functions ()                
                 )
     ()
 

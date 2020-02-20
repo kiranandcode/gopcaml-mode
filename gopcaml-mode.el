@@ -1,12 +1,18 @@
+;;; gopcaml-mode -- ocaml editing mode
+;;; Commentary:
+;;; An extension of tuareg mode to provide a better editing experience.
 ;; (defun fake-module-reload (module)
 ;;   (let ((tmpfile (make-temp-file
 ;;                   (file-name-nondirectory module) nil module-file-suffix)))
 ;;     (copy-file module tmpfile t)
 ;;     (module-load tmpfile)))
-
-(add-to-list 'load-path (expand-file-name "./_build/default/"))
-(require 'gopcaml)
-;; (fake-module-reload "./_build/default/gopcaml.so")
+;;; Code:
+;; (add-to-list 'load-path (expand-file-name "./_build/default/"))
+(require 'subr-x)
+(require 'gopcaml (expand-file-name
+		   "./_build/default/gopcaml.so"
+		   (string-trim
+		    (shell-command-to-string (format "dirname %s" file)))))
 
 (defgroup gopcaml-faces nil
   "Faces for gopcaml mode."
@@ -45,10 +51,12 @@
   (setq gopcaml-temporary-highlight-overlays
 	(remove-if (lambda (it) (null it))
 		   (mapcar (lambda (it)
-			     (if (or (not group) (equal (overlay-get it 'gopcaml-kind) group))
+			     (if (or (not group)
+				     (equal (overlay-get it 'gopcaml-kind)
+					    group))
 				 (delete-overlay it)
-			       nil)) gopcaml-temporary-highlight-overlays)))
-  )
+			       nil))
+			   gopcaml-temporary-highlight-overlays))))
 
 (defun gopcaml-store-overlays (overlay &optional group)
   "Store an OVERLAY - optionally only those of gopcaml-kind GROUP."
@@ -89,21 +97,44 @@ removes all existing overlays of type GROUP if present."
       (setq end (cdr area))
       (gopcaml-temporarily-highlight-region (cons start end)))))
 
-(defun move-gopcaml-zipper (zipper-fn)
-  "Move the zipper using ZIPPER-FN."
-  (let ((area (car (funcall zipper-fn))) start end (buf-name (buffer-name)))
+(defun move-gopcaml-zipper (zipper-fn &optional direction initial)
+  "Move the zipper using ZIPPER-FN in direction DIRECTION."
+  (let ((area (car (gopcaml-retrieve-zipper-bounds)))
+	start end (point (point)) (buf-name (buffer-name)))
     (if area
 	(progn
 	  (setq start (car area))
 	  (setq end (cadr area))
-	  (move-overlay gopcaml-zipper-overlay start end)
-	  (let ((wind-start (window-start)) (wind-end (window-end)))
-	    (if (and wind-start wind-end (< wind-start start wind-end))
-		(set-window-point (get-buffer-window buf-name) start)
-	      (goto-char start))
-	    )
-	  t
-	  )
+	  (cond
+	   ((and
+	     (not initial)
+	     (equal point start)
+	     (equal direction 'forward)
+	     )
+	    (goto-char end)
+	    t)
+	   ((and
+	     (not initial)
+	     (equal point end)
+	     (equal direction 'backward)
+	     )
+	    (goto-char start)
+	    t)
+	   (t
+	    (setq area (car (funcall zipper-fn)))
+	    (if area
+		(progn
+		  (setq start (car area))
+		  (setq end (cadr area))
+		  (move-overlay gopcaml-zipper-overlay start end)
+		  (let ((wind-start (window-start)) (wind-end (window-end)))
+		    (if (and wind-start wind-end (< wind-start start wind-end))
+			(set-window-point (get-buffer-window buf-name) start)
+		      (goto-char start))
+		    )
+		  t
+		  )
+	      nil))))
       nil)))
 
 (defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor)
@@ -126,12 +157,12 @@ removes all existing overlays of type GROUP if present."
 	      (set-transient-map
 	       gopcaml-zipper-mode-map
 	       t #'gopcaml-on-exit-zipper-mode)
-	      (funcall operation))
+	      (funcall operation t))
 	  (gopcaml-delete-zipper)
 	  nil
 	  ))
     ;; otherwise just perfom operation
-     (funcall operation)
+     (funcall operation nil)
   ))
 
 (defun gopcaml-beginning-defun ()
@@ -151,38 +182,59 @@ removes all existing overlays of type GROUP if present."
       nil)))
 
 (defun gopcaml-forward-list ()
-  (interactive)
   "Move the zipper forwards (broadly from current point)."
-  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-right))
+  (interactive)
+  (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
+					    #'gopcaml-move-zipper-right
+					    'forward
+					    initial))
 				#'gopcaml-broadly-build-zipper))
 
 (defun gopcaml-backward-list (&optional arg arg2)
-  (interactive)
   "Move the zipper backwards (broadly from current point)."
-  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-left))
+  (interactive)
+  (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
+					    #'gopcaml-move-zipper-left
+					    'backward
+					    initial))
 				#'gopcaml-broadly-build-zipper))
 
 (defun gopcaml-backward-up-list (&optional arg)
-  (interactive)
   "Move the zipper up (from expression at point)."
-  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-up))))
+  (interactive)
+  (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
+						   #'gopcaml-move-zipper-up
+						   nil
+						   initial))))
 
 (defun gopcaml-down-list ()
-  (interactive)
   "Move the zipper down (from expression at point)."
-  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-down))))
+  (interactive)
+  (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
+						   #'gopcaml-move-zipper-down
+						   nil
+						   initial))))
 
 (defun gopcaml-forward-sexp (&optional arg)
+  "Move the zipper forward ARG times (from expression at point)."
   (interactive "^p")
-  "Move the zipper forward (from expression at point)."
   (if (equal arg (- 1))
-      (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-left)))
-      (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-right)))))
+      (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
+						#'gopcaml-move-zipper-left
+						'backward
+						initial)))
+    (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
+					      #'gopcaml-move-zipper-right
+					      'forward
+					      initial)))))
 
 (defun gopcaml-backward-sexp ()
   (interactive)
   "Move the zipper backwards (from expression at point)."
-  (gopcaml-zipper-mode-and-move (lambda () (move-gopcaml-zipper #'gopcaml-move-zipper-left))))
+  (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
+						   #'gopcaml-move-zipper-left
+						   'backward
+						   initial))))
 
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
@@ -340,23 +392,6 @@ removes all existing overlays of type GROUP if present."
   (delete-overlay gopcaml-zipper-overlay)
   (setq gopcaml-zipper-overlay nil))
 
-
-;; (defun gopcaml-end-defun ()
-;;   (interactive)
-;;   (let ((area (car (gopcaml-build-zipper (point) (line-number-at-pos)))) end)
-;;     (if (and area (equal (cadr area) (point)))
-;; 	(progn
-;; 	  (setq area (car (gopcaml-move-zipper-right)))
-;; 	  (if area (setq end (cadr area))))
-;;       (if area (setq end (cadr area))))
-;;     (if area (progn
-;; 	       (goto-char end)
-;; 	       (gopcaml-delete-zipper))
-;;       (gopcaml-delete-zipper)
-;;       (merlin-phrase-next))))
-
-
-
 ;; graciously taken from https://emacs.stackexchange.com/questions/12532/buffer-local-idle-timer
 (defun run-with-local-idle-timer (secs repeat function &rest args)
   "`run-with-idle-timer' but always run in the `current-buffer'.
@@ -373,7 +408,7 @@ FUNCTION is the function to call on timer"
                   (with-current-buffer ,(current-buffer)
                     (apply (function ,function) args))))))
     (fset fns fn)
-    fn))
+    timer))
 
 (defun gopcaml-before-change-remove-type-hole (beginning end)
   "Before inserting text, attempt to remove type holes.
@@ -387,8 +422,6 @@ END is the end of the edited text region."
 	)
       )
     ))
-
-
 
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
@@ -406,44 +439,48 @@ END is the end of the edited text region."
 
   (setq-local end-of-defun-function #'gopcaml-end-defun)
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
-  (setq-local forward-sexp-function #'gopcaml-forward-sexp)
+
+  (define-key gopcaml-mode-map (kbd "C-M-f") #'gopcaml-forward-sexp)
+  (define-key gopcaml-mode-map (kbd "C-M-b") #'gopcaml-backward-sexp)
+
+  (setq-local forward-sexp-function nil)
+  ;; (setq-local forward-sexp-function #'gopcaml-forward-sexp)
   ;; (define-key gopcaml-mode-map [remap beginning-of-defun] #'gopcaml-beginning-defun)
   ;; ;; (bind-key (kbd "C-M-e") #'merlin-phrase-next gopcaml-mode-map)
   ;; ;; C-n should move to the next field
   ;; (define-key gopcaml-mode-map [remap end-of-defun] #'gopcaml-end-defun)
   ;; (bind-key (kbd "C-n") #'yas-next-field-or-maybe-expand yas-keymap)
-
-  (setq after-change-functions
-	(cons #'gopcaml-update-dirty-region after-change-functions))
-  (setq before-change-functions
-	(cons #'gopcaml-before-change-remove-type-hole before-change-functions))
+  (add-hook 'after-change-functions #'gopcaml-update-dirty-region)
+  (add-hook 'before-change-functions #'gopcaml-before-change-remove-type-hole)
   (setq gopcaml-update-timer
-	(run-with-local-idle-timer gopcaml-rebuild-delay t #'gopcaml-ensure-updated-state))
+	(run-with-local-idle-timer gopcaml-rebuild-delay t
+				   (lambda ()
+				     (when gopcaml-state (gopcaml-ensure-updated-state)))))
   ;; whenever prefix - expand
   ;; (setq gopcaml-expand-timer
   ;; 	(run-with-local-idle-timer 0.1 t (lambda () (interactive) (yas-expand))))
   )
 
-
-(defun gopcaml-teardown-bindings ()
-  "Teardown bindings for gopcaml-mode."
-  (message "tearing down gopcaml-bindings")
+(defun gopcaml-quit ()
+  "Quit gopcaml-mode and tear down its timers and bindings."
+  (interactive)
   (setq after-change-functions
 	(remove #'gopcaml-update-dirty-region after-change-functions))
-  (cancel-timer gopcaml-update-timer)
-  (setq gopcaml-update-timer nil))
+  (if gopcaml-update-timer
+      (progn "cancelling gopcaml-update-timer" (cancel-timer gopcaml-update-timer)))
+  (setq gopcaml-update-timer nil)
+	(setq gopcaml-state nil)
+	(setq gopcaml-zipper nil)
+  (fundamental-mode))
 
-(add-hook 'gopcaml-mode-hook #'gopcaml-setup-bindings)
+(defun gopcaml-setup-hook ()
+  "Initialize gopcaml-mode."
+  (gopcaml-setup-bindings))
+(add-hook 'gopcaml-mode-hook #'gopcaml-setup-hook)
 
-;; (local-set-key (kbd "C-M-l") #'gopcaml-highlight-current-structure-item)
-;; (local-set-key (kbd "C-M-k") #'gopcaml-highlight-dirty-region)
-
-(setq debug-on-error t)
-;; temporary code to test gopcaml-mode
-(find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/gopcaml_state.ml")
-(gopcaml-mode)
-(gopcaml-setup-bindings)
-
-
-
+;; (setq debug-on-error t)
+;; ;; temporary code to test gopcaml-mode
+;; (find-file "/home/kirang/Documents/code/ocaml/gopcaml-mode/gopcaml_state.ml")
+;; (gopcaml-mode)
+;; (gopcaml-setup-bindings)
 (provide 'gopcaml-mode)

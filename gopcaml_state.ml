@@ -1,10 +1,10 @@
 open Core
 open Ecaml
 
+
 module State = struct
 
   module Filetype = struct
-    
 
     (** records whether the current file is an interface or implementation *)
     type s = Interface | Implementation [@@deriving sexp]
@@ -99,7 +99,6 @@ module State = struct
             let (min_column, max_column) = get_result () in
             let start_marker,end_marker = Marker.create (), Marker.create () in
             let get_position column = 
-              message (Printf.sprintf "getting position %d" column);
               Position.of_int_exn column
             in
             (* Point.goto_line_and_column Line_and_column.{line;column};
@@ -900,6 +899,13 @@ let retrieve_zipper ?current_buffer ~zipper_var =
 let delete_zipper ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   Buffer_local.set zipper_var None current_buffer
+
+(** delete state *)
+let delete_state ?current_buffer ~state_var () =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  Buffer_local.set state_var None current_buffer
+
+
 
 let abstract_zipper_to_bounds zipper = zipper
                                        |> Option.map ~f:Ast_zipper.to_bounds
