@@ -67,6 +67,13 @@
      CLOSED: [2020-02-19 Wed 17:17]
 **** DONE C-M-b - backwards sexp - move granularly to region and move backwards zipper
      CLOSED: [2020-02-19 Wed 17:17]
+*** DONE Fix issue with line 0
+    CLOSED: [2020-02-20 Thu 13:55]
+*** Setup conditional keybindings 
+**** add filter function to check whether state active, and try to build - return nil if state still not possible
+**** use menu-item to only bind movement commands when possible to build zipper
+*** TODO Setup adding remove parens in pairs 
+** Inessential todos
 *** TODO - move zipper to point and kill
 **** DONE C-M-k - kill sexp
      CLOSED: [2020-02-19 Wed 17:17]
@@ -75,7 +82,7 @@
 *** TODO M-a, M-e - move sentences - module
 *** TODO M-k - kill sentence - kill module
 *** TODO C-M-l reposition to buffer - fix to work with ocaml
-*** TODO C-M-t transpose sexp
+*** TODO C-M-t fix transpose sexp
 * Longer term Todos
 ** TODO Implement move into
 ** TODO Implement move outof

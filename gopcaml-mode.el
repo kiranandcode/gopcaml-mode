@@ -46,6 +46,10 @@
 (defvar-local  gopcaml-expand-timer nil
   "Timer object used to periodically expand the element under point")
 
+(when (require 'smartparens nil 'noerror)
+  (sp-local-pair 'gopcaml-mode "begin" "end")
+  )
+
 (defun gopcaml-remove-stored-overlays (&optional group)
   "Remove stored overlays - optionally only those of gopcaml-kind GROUP."
   (setq gopcaml-temporary-highlight-overlays

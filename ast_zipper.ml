@@ -74,11 +74,8 @@ end = struct
 
     let cmp f a b = match (a,b) with
       -1,-1 -> -1
-      | 0,0 -> -1
       | a,-1 -> a
       | -1,b -> b
-      | a, 0 -> a
-      | 0, b -> b
       | a,b -> f a b 
     let min = cmp min
     let max = cmp max
