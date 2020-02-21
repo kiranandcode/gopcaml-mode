@@ -93,3 +93,4 @@ let enclosing_bounds_iterator point ()  =
     with
       location = fun _ -> update_bounds
   },retrieve_bounds
+

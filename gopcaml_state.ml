@@ -791,7 +791,6 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
     | _ -> None
   end
 
-
 (** updates the dirty region of the parse tree *)
 let update_dirty_region ?current_buffer ~state_var (s,e,l) =
   (* message (Printf.sprintf "updating dirty region with s:%d-%d l:%d" s e l); *)
