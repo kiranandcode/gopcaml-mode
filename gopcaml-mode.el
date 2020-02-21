@@ -24,14 +24,8 @@
   "Face for highlighting expr."
   :group 'gopcaml-faces)
 
-(defface gopcaml-selection-face
-  '((t (:underline "light sky blue")))
-  ;; '((t :inherit caml-types-expr-face))
-  "Face for zipper when selecting expr."
-  :group 'gopcaml-faces)
-
 (defface gopcaml-zipper-face
-  '((t (:background "pale green")))
+  '((t (:background "dark slate gray")))
   ;; '((t :inherit caml-types-expr-face))
   "Face for highlighting zipper."
   :group 'gopcaml-faces)
