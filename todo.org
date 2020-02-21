@@ -81,6 +81,8 @@
 *** shift-commands - don't place a face on the overlay
 ** DONE C-M-t fix transpose sexp
    CLOSED: [2020-02-21 Fri 12:33]
+** TODO Support move out of region
+** TODO Support zipper to range
 * Inessential todos
 ** TODO - move zipper to point and kill
 *** DONE C-M-k - kill sexp

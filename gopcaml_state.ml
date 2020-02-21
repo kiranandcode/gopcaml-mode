@@ -1019,6 +1019,29 @@ let zipper_delete_current ?current_buffer ~zipper_var () =
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
     )
 
+let zipper_move_up ?current_buffer ~zipper_var ()  =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:(Ast_zipper.move_up)
+  |> Option.map ~f:(fun (zipper,pos,(ds,de)) ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      (Position.of_int_exn (pos + 1),
+       (Position.of_int_exn (ds + 1),
+        Position.of_int_exn (de + 1)
+       ))
+    )
+
+let zipper_move_down ?current_buffer ~zipper_var ()  =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:(Ast_zipper.move_down)
+  |> Option.map ~f:(fun (zipper,pos,(ds,de)) ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      (Position.of_int_exn (pos + 1),
+       (Position.of_int_exn (ds + 1),
+        Position.of_int_exn (de + 1)
+       ))
+    )
 
 (** inserts a let def using the zipper, returning the text to insert,
     and the point at which to insert it *)

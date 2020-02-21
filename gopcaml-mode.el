@@ -255,6 +255,7 @@ removes all existing overlays of type GROUP if present."
 (defun gopcaml-down-list ()
   "Move the zipper dow (from expression at point)."
   (interactive) (gopcaml-down-list-full nil))
+
 (defun gopcaml-down-list-selection ()
   "Move the zipper down (from expression at point)."
   (interactive) (gopcaml-down-list-full t))
@@ -331,6 +332,35 @@ removes all existing overlays of type GROUP if present."
       (setq area (car (gopcaml-retrieve-zipper-bounds)))
       (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
       (goto-char (car area)))))
+
+(defun gopcaml-zipper-move-vertical (move-fn)
+  "Insert a let-def using the zipper MOVE-FN."
+  (interactive)
+  (let (area insert-pos start end text)
+    (setq area (car (funcall move-fn)))
+    (setq insert-pos (car area))
+    (setq start (cadr area))
+    (setq end (caddr area))
+    (setq text (buffer-substring-no-properties start end))
+    (delete-region start end)
+    (goto-char insert-pos)
+    (insert "\n\n")
+    (insert text)
+    (insert "\n")
+    (setq area (car (gopcaml-retrieve-zipper-bounds)))
+    (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+    (goto-char (car area))
+    ))
+
+(defun gopcaml-zipper-move-up ()
+  "Move the zipper element up."
+  (interactive)
+  (gopcaml-zipper-move-vertical #'gopcaml-zipper-move-elem-up))
+
+(defun gopcaml-zipper-move-down ()
+  "Move the zipper down."
+  (interactive)
+  (gopcaml-zipper-move-vertical #'gopcaml-zipper-move-elem-down))
 
 (defun gopcaml-zipper-insert-letdef ()
   "Attempt to insert a let-def using the zipper."
@@ -471,9 +501,12 @@ removes all existing overlays of type GROUP if present."
 
     (define-key gopcaml-map (kbd "C-M-u")
       '(menu-item "" gopcaml-backward-up-list))
+    (define-key gopcaml-map (kbd "C-M-S-u")
+      '(menu-item ""  gopcaml-zipper-move-up))
     (define-key gopcaml-map (kbd "C-M-d")
       '(menu-item "" gopcaml-down-list ))
-
+    (define-key gopcaml-map (kbd "C-M-S-d")
+      '(menu-item ""  gopcaml-zipper-move-down))
     (define-key gopcaml-map (kbd "C-M-n")
       '(menu-item "" gopcaml-forward-list))
     (define-key gopcaml-map (kbd "C-M-p")
