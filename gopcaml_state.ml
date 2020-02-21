@@ -345,8 +345,8 @@ module State = struct
     let update (s:t) (_s,_e,_l: (int * int * int)) : t =
       (* todo: track detailed changes *)
       match (s : t) with
-      | Clean tree -> Dirty (Some tree, false)
-      | Dirty (tree,_) -> Dirty (tree, false)
+      | Clean tree -> Dirty (Some tree, true)
+      | Dirty (tree,_) -> Dirty (tree, true)
 
 
     (** builds an updated parse_tree (updating any dirty regions) *)
@@ -944,6 +944,19 @@ let move_zipper_left ?current_buffer ~zipper_var () =
       zipper
     )
   |>  abstract_zipper_to_bounds  
+
+(** attempts to move the current zipper left *)
+let ensure_zipper_space ?current_buffer ~zipper_var (pre_line,pre_column) (post_line,post_column) () =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:(fun zipper -> Ast_zipper.update_zipper_space_bounds zipper
+                       (pre_column,pre_line) (post_column + 2,post_line))
+  |> Option.map ~f:(fun zipper ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      zipper
+    )
+  |>  abstract_zipper_to_bounds
+
 
 (** attempts to move the current zipper right *)
 let move_zipper_right ?current_buffer ~zipper_var () =

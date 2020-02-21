@@ -301,6 +301,77 @@ removes all existing overlays of type GROUP if present."
   "Move the zipper down (from expression at point)."
   (interactive) (gopcaml-backward-sexp-full t arg))
 
+(defun gopcaml-ensure-space-between-backward ()
+  "Ensures space between points."
+  (interactive)
+  (let ((start (point)) end
+	(start-line (line-number-at-pos))
+	end-line
+	(indent (current-column))p
+	)
+    (skip-chars-backward " \n\t")
+    (setq end (point))
+    (setq end-line (line-number-at-pos))
+    (delete-region start end)
+    (insert "\n")
+    (insert "\n")
+    (insert (make-string indent 32))
+    (list (- (point) end) (- start end)
+	  (- (line-number-at-pos) end-line)
+	  (- start-line end-line))
+    ))
+
+(defun gopcaml-ensure-space-between-forward ()
+  "Ensures space between points."
+  (interactive)
+  (let ((start (point)) end
+	(start-line (line-number-at-pos))
+	end-line
+	indent
+	)
+    (skip-chars-forward " \n\t")
+    (setq indent (current-column))
+    (setq end (point))
+    (setq end-line (line-number-at-pos))
+    (delete-region start end)
+    (insert "\n")
+    (insert "\n")
+    (insert (make-string indent 32))
+    (list (- (point) end) (- start end)
+	  (- (line-number-at-pos) end-line)
+	  (- start-line end-line))
+    ))
+
+(defun gopcaml-zipper-ensure-space ()
+  "Ensures-spacing between current element."
+  (let
+      ((area (car (gopcaml-retrieve-zipper-bounds)))
+       start end
+       pre-change
+       post-change)
+    (when area
+      (setq start (car area))
+      (setq end (cadr area))
+      (goto-char end)
+      (setq post-change (gopcaml-ensure-space-between-forward))
+      (setq post-change
+	    (list
+	     (- (cadr post-change) (car post-change))
+	     (- (cadddr post-change) (caddr post-change)))
+	    )
+      (goto-char start)
+      (setq pre-change (gopcaml-ensure-space-between-backward))
+      (setq pre-change
+	    (list
+	     (- (cadr pre-change) (car pre-change))
+	     (- (cadddr pre-change) (caddr pre-change))))
+      (setq area (car (gopcaml-zipper-space-update
+       (car pre-change) (cadr pre-change)
+       (car post-change) (cadr post-change))))
+      (when area
+	(move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+	t))))
+
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
   (interactive)
@@ -489,7 +560,7 @@ removes all existing overlays of type GROUP if present."
 
 (defun gopcaml-state-filter (cmd)
     "Determines whether a CMD can be carried out in current Gopcaml mode state."
-    (when (gopcaml-state-available-filter)
+    (when (and gopcaml-state(gopcaml-state-available-filter))
       cmd))
 
 (defvar gopcaml-zipper-mode-map
@@ -532,6 +603,11 @@ removes all existing overlays of type GROUP if present."
     (define-key gopcaml-map (kbd "C-M-t")
       '(menu-item "" (lambda () (interactive) (gopcaml-zipper-transpose))
 		  ))
+    (define-key gopcaml-map (kbd "M-SPC")
+      '(menu-item "" (lambda () (interactive) (gopcaml-zipper-ensure-space))))
+    (define-key gopcaml-map (kbd "C-M-SPC")
+      '(menu-item "" (lambda () (interactive) (gopcaml-zipper-ensure-space))))
+
     ;; (define-key gopcaml-map (kbd "T") '(lambda ()
     ;; 					 (interactive)
     ;; 					 (gopcaml-zipper-type)))

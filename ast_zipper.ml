@@ -3,6 +3,8 @@ open Core
 module TextRegion : sig
   module Diff : sig
     type t
+    val of_pair : int * int -> t
+    val combine : t -> t -> t
     val negate : t -> t
     val add_newline_with_indent: indent:int -> t -> t 
     val update_lexing_position : Lexing.position -> t -> Lexing.position 
@@ -49,7 +51,11 @@ end = struct
   module Diff = struct
     type t = int * int
 
+    let of_pair (x,y) = (x,y)
+
     let negate (line,col) = (-line,-col)
+
+    let combine (l1,c1) (l2,c2) = (l1 + l2,c1 + c2)
 
     (* increments the diff by 1 newline + indentation *)
     let add_newline_with_indent ~indent (line,col)  =
@@ -763,6 +769,40 @@ let go_right (MkLocation (current,parent) as loc) =
     Some (MkLocation (r, Node {below=current::below; parent; above=right; bounds}))
   | _ -> go_up loc
 
+let update_zipper_space_bounds (MkLocation (current,parent))
+    (pre_column,pre_line) (post_column,post_line) =
+  let pre_diff = TextRegion.Diff.of_pair (pre_line, pre_column)
+               |> TextRegion.Diff.negate in
+  let post_diff = TextRegion.Diff.of_pair (post_line, post_column)
+                  |> TextRegion.Diff.negate in
+  let current = t_shift_by_offset ~diff:pre_diff current in
+  let diff = TextRegion.Diff.combine pre_diff post_diff in
+  let update_bounds = update_bounds ~diff in
+  let update_meta_bound bounds = 
+    match bounds with None -> None
+                    | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
+  in
+  (* update parent *)
+  let rec update_parent parent = match parent with
+      | Top -> Top
+      | Node {below;parent;above; bounds} ->
+        let above = List.map ~f:update_bounds above in
+        let bounds = update_meta_bound bounds in
+        let parent = update_parent parent in 
+        Node {below; parent; above; bounds} in
+  match parent with
+  | Top -> None
+  | Node {below; parent=up; above=right; bounds} ->
+    let right = List.map ~f:update_bounds right in
+    let parent = update_parent up in
+    let bounds = update_meta_bound bounds in
+      Some (MkLocation(current, Node{below;parent;above=right; bounds}))
+
+    
+
+
+
+
 (** deletes the current element of the zipper  *)
 let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
   let (let+) x f = Option.bind ~f x in
@@ -800,8 +840,8 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       Some (MkLocation (EmptySequence (TextRegion.extend_region bounds diff,ty), up)) 
     | Node {below=[]; parent=up; above=[]; _} ->
       remove_current (MkLocation (current, up)) in
-  remove_current loc |> Option.map ~f:(fun v -> v,current_bounds) 
-
+  remove_current loc |> Option.map ~f:(fun v -> v,current_bounds)
+  
 let move_up (MkLocation (current,parent) as loc)  =
   let (let+) x f = Option.bind ~f x in
   match parent with
@@ -819,7 +859,6 @@ let move_down (MkLocation (current,_) as loc)  =
   let+ loc = go_down loc in
   let+ (loc,insert_pos) = insert_element loc current in
   Some (loc, insert_pos, TextRegion.to_bounds bounds)
-
 
 (** swaps two elements at the same level, returning the new location  *)
 let calculate_swap_bounds (MkLocation (current,parent)) =

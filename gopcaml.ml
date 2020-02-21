@@ -1,10 +1,10 @@
 open Core
+
 open Ecaml
 
 let version = 0.1
 
 let gopcaml_version = "0.0"
-
 
 module Variables = struct
 
@@ -30,9 +30,7 @@ module Variables = struct
 
 end
 
-
 module Customizable = struct
-
 
   let gopcaml_group =
     Customization.Group.defgroup "gopcaml"
@@ -269,6 +267,24 @@ let define_functions () =
        return @@ Gopcaml_state.zipper_move_up ~zipper_var:Variables.zipper_var in
      op ()
      |> Option.map ~f:(fun (a,(b,c)) -> [a; b; c])
+    );
+  defun
+    ("gopcaml-zipper-space-update" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Updates the space aroound the current item. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open pre_col =
+       required "pre_col" Value.Type.int
+     and pre_line = 
+       required "pre_line" Value.Type.int
+     and post_col = 
+       required "post_col" Value.Type.int
+     and post_line = 
+       required "post_line" Value.Type.int in
+     Gopcaml_state.ensure_zipper_space ~zipper_var:Variables.zipper_var
+       (pre_col,pre_line) (post_col, post_line) ()
+     |> Option.map ~f:(fun (a,b) -> [a; b])
     );
   defun
     ("gopcaml-zipper-move-elem-down" |> Symbol.intern)
