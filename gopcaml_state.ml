@@ -199,8 +199,8 @@ module State = struct
         with Parser.Error -> 
           message (Printf.sprintf "parsing got error parse.error");
           None
-           | Syntaxerr.Error err ->
-             message (Printf.sprintf "parsing got error %s" (ExtLib.dump err));
+           | Syntaxerr.Error _ ->
+             (* message (Printf.sprintf "gopcaml: syntax error" ); *)
              None
       else match file_type with
         | Interface -> Some (MkParseTree (Intf []))
@@ -773,7 +773,6 @@ let apply_iterator (item: State.parse_item) iter f  =
 let find_enclosing_bounds (state: State.Validated.t) ~point =
   find_enclosing_structure state point
   |> Option.bind ~f:begin fun expr ->
-    (* message (Printf.sprintf "enclosing structure: %s"(ExtLib.dump expr)); *)
     let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
     apply_iterator expr iter getter
     |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
@@ -793,7 +792,6 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
 
 (** updates the dirty region of the parse tree *)
 let update_dirty_region ?current_buffer ~state_var (s,e,l) =
-  (* message (Printf.sprintf "updating dirty region with s:%d-%d l:%d" s e l); *)
   let (let+) x f = ignore @@ Option.map ~f x in
   let open State in
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
