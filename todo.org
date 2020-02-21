@@ -46,7 +46,8 @@
    CLOSED: [2020-02-18 Tue 18:57]
 ** DONE Fix move to defun functionality to use lines
    CLOSED: [2020-02-19 Wed 12:01]
-** TODO Setup move to let def to begin zipper mode
+** DONE Setup move to let def to begin zipper mode
+   CLOSED: [2020-02-21 Fri 17:10]
 *** DONE C-M-a - move to start of defun & move zipper broadly to point and start zipper at structure item
     CLOSED: [2020-02-19 Wed 15:09]
 *** DONE C-M-e - move to end of defun & move zipper broadly to point and start zipper at structure item
@@ -71,20 +72,23 @@
     CLOSED: [2020-02-20 Thu 13:55]
 *** DONE Setup adding remove parens in pairs 
     CLOSED: [2020-02-20 Thu 16:24]
-*** TODO add support for selections
-*** Setup conditional keybindings 
+*** DONE Setup conditional keybindings 
+    CLOSED: [2020-02-21 Fri 17:10]
 **** add filter function to check whether state active, and try to build - return nil if state still not possible
 **** use menu-item to only bind movement commands when possible to build zipper
-** Inessential todos
-*** TODO - move zipper to point and kill
-**** DONE C-M-k - kill sexp
-     CLOSED: [2020-02-19 Wed 17:17]
-**** TODO C-M-spc - mark sexp - move zipper to point and select region
-*** TODO M-{, M-} - move paragraph - (i.e top level structure items)
-*** TODO M-a, M-e - move sentences - module
-*** TODO M-k - kill sentence - kill module
-*** TODO C-M-l reposition to buffer - fix to work with ocaml
-*** TODO C-M-t fix transpose sexp
+** DONE add support for selections
+   CLOSED: [2020-02-21 Fri 18:23]
+*** shift-commands - don't place a face on the overlay
+* Inessential todos
+** TODO - move zipper to point and kill
+*** DONE C-M-k - kill sexp
+    CLOSED: [2020-02-19 Wed 17:17]
+*** TODO C-M-spc - mark sexp - move zipper to point and select region
+** TODO M-{, M-} - move paragraph - (i.e top level structure items)
+** TODO M-a, M-e - move sentences - module
+** TODO M-k - kill sentence - kill module
+** TODO C-M-l reposition to buffer - fix to work with ocaml
+** TODO C-M-t fix transpose sexp
 * Longer term Todos
 ** TODO Implement move into
 ** TODO Implement move outof

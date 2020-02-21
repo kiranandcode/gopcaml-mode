@@ -101,6 +101,15 @@ let define_functions () =
                                      ~state_var:Variables.state_var) in
      (getter ()));
   defun
+    ("gopcaml-state-available-filter" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Check whether gopcaml state is available. |}
+    (Returns Value.Type.bool)
+    (let open Defun.Let_syntax in
+     let%map_open getter = return (Gopcaml_state.check_gopcaml_state_available
+                                     ~state_var:Variables.state_var) in
+     (getter ()));
+  defun
     ("gopcaml-update-dirty-region" |> Symbol.intern)
     [%here]
     ~docstring:{|

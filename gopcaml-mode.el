@@ -24,8 +24,15 @@
   "Face for highlighting expr."
   :group 'gopcaml-faces)
 
+(defface gopcaml-selection-face
+  '((t (:underline "light sky blue")))
+  ;; '((t :inherit caml-types-expr-face))
+  "Face for zipper when selecting expr."
+  :group 'gopcaml-faces)
+
 (defface gopcaml-zipper-face
-  '((t :inherit caml-types-expr-face))
+  '((t (:background "pale green")))
+  ;; '((t :inherit caml-types-expr-face))
   "Face for highlighting zipper."
   :group 'gopcaml-faces)
 
@@ -141,13 +148,21 @@ removes all existing overlays of type GROUP if present."
 	      nil))))
       nil)))
 
-(defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor)
+(defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor selection-mode)
   "Start gopcaml-zipper mode using ZIPPER-CONSTRUCTOR and perform OPERATION."
   (interactive)
   (if (not zipper-constructor) (setq zipper-constructor #'gopcaml-build-zipper))
-  ;;  if not already in zipper mode
-  (if (not gopcaml-zipper)
-  ;; build zipper aronud point
+
+  (let ((selection-active (or (region-active-p) selection-mode)))
+    (if (and selection-active (not (region-active-p)))
+	(progn
+	  (push-mark (point))
+	  (activate-mark))
+      )
+
+    ;;  if not already in zipper mode
+    (if (not gopcaml-zipper)
+	;; build zipper aronud point
       (let ((area (car (funcall zipper-constructor (point) (line-number-at-pos)))) start end overlay)
 	;; if successfull then perform operation
 	(if area
@@ -155,11 +170,16 @@ removes all existing overlays of type GROUP if present."
 	      (setq start (car area))
 	      (setq end (cadr area))
 	      (setq overlay (make-overlay start end))
-	      (overlay-put overlay 'face 'gopcaml-zipper-face)
+	      (if (not selection-active)
+		  ;; (overlay-put overlay 'face 'gopcaml-selection-face)
+		  (overlay-put overlay 'face 'gopcaml-zipper-face)
+		  )
 	      (overlay-put overlay 'gopcaml-kind 'zipper)
 	      (setq gopcaml-zipper-overlay overlay)
 	      (set-transient-map
-	       gopcaml-zipper-mode-map
+	       (if (not selection-active)
+		   gopcaml-zipper-mode-map
+		 gopcaml-selection-zipper-mode-map)
 	       t #'gopcaml-on-exit-zipper-mode)
 	      (funcall operation t))
 	  (gopcaml-delete-zipper)
@@ -167,7 +187,7 @@ removes all existing overlays of type GROUP if present."
 	  ))
     ;; otherwise just perfom operation
      (funcall operation nil)
-  ))
+  )))
 
 (defun gopcaml-beginning-defun ()
   "Move backwards to the beginning of the defun."
@@ -185,42 +205,75 @@ removes all existing overlays of type GROUP if present."
 	(progn (goto-char  area))
       nil)))
 
-(defun gopcaml-forward-list ()
-  "Move the zipper forwards (broadly from current point)."
+(defun gopcaml-forward-list-full (selection-mode)
+  "Move the zipper forwards (broadly from current point) in SELECTION-MODE."
   (interactive)
   (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
 					    #'gopcaml-move-zipper-right
 					    'forward
 					    initial))
-				#'gopcaml-broadly-build-zipper))
+				#'gopcaml-broadly-build-zipper
+				selection-mode))
 
-(defun gopcaml-backward-list (&optional arg arg2)
-  "Move the zipper backwards (broadly from current point)."
+(defun gopcaml-forward-list ()
+  "Move the zipper forwards (broadly from current point)."
+  (interactive) (gopcaml-forward-list-full nil))
+(defun gopcaml-forward-list-selection ()
+  "Move the zipper forwards (broadly from current point)."
+  (interactive) (gopcaml-forward-list-full t))
+
+(defun gopcaml-backward-list-full (selection-mode)
+  "Move the zipper backwards (broadly from current point) in SELECTION-MODE."
   (interactive)
   (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
 					    #'gopcaml-move-zipper-left
 					    'backward
 					    initial))
-				#'gopcaml-broadly-build-zipper))
+				#'gopcaml-broadly-build-zipper
+				selection-mode))
 
-(defun gopcaml-backward-up-list (&optional arg)
-  "Move the zipper up (from expression at point)."
+(defun gopcaml-backward-list ()
+  "Move the zipper backwards (broadly from current point)."
+  (interactive) (gopcaml-backward-list-full nil))
+(defun gopcaml-backward-list-selection ()
+  "Move the zipper backwards (broadly from current point)."
+  (interactive) (gopcaml-backward-list-full t))
+
+(defun gopcaml-backward-up-list-full (selection-mode)
+  "Move the zipper up (from expression at point) in SELECTION-MODE."
   (interactive)
   (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
 						   #'gopcaml-move-zipper-up
 						   nil
-						   initial))))
+						   initial))
+				nil
+				selection-mode))
+(defun gopcaml-backward-up-list ()
+  "Move the zipper up (from expression at point)."
+  (interactive) (gopcaml-backward-up-list-full nil))
+(defun gopcaml-backward-up-list-selection ()
+  "Move the zipper up (from expression at point)."
+  (interactive) (gopcaml-backward-up-list-full t))
 
-(defun gopcaml-down-list ()
-  "Move the zipper down (from expression at point)."
+
+(defun gopcaml-down-list-full (selection-mode)
+  "Move the zipper down (from expression at point) in SELECTION-MODE."
   (interactive)
   (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
 						   #'gopcaml-move-zipper-down
 						   nil
-						   initial))))
+						   initial))
+				nil
+				selection-mode))
+(defun gopcaml-down-list ()
+  "Move the zipper dow (from expression at point)."
+  (interactive) (gopcaml-down-list-full nil))
+(defun gopcaml-down-list-selection ()
+  "Move the zipper down (from expression at point)."
+  (interactive) (gopcaml-down-list-full t))
 
-(defun gopcaml-forward-sexp (&optional arg)
-  "Move the zipper forward ARG times (from expression at point)."
+(defun gopcaml-forward-sexp-full (selection-mode &optional arg)
+  "Move the zipper forward ARG times (from expression at point) in SELECTION-MODE."
   (interactive "^p")
   (if (equal arg (- 1))
       (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
@@ -230,15 +283,35 @@ removes all existing overlays of type GROUP if present."
     (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
 					      #'gopcaml-move-zipper-right
 					      'forward
-					      initial)))))
+					      initial))
+				  nil
+				  selection-mode)))
 
-(defun gopcaml-backward-sexp ()
+(defun gopcaml-forward-sexp (&optional arg)
+  "Move the zipper dow (from expression at point)."
+  (interactive) (gopcaml-forward-sexp-full nil arg))
+
+(defun gopcaml-forward-sexp-selection (&optional arg)
+  "Move the zipper down (from expression at point)."
+  (interactive) (gopcaml-forward-sexp-full t arg))
+
+(defun gopcaml-backward-sexp-full (selection-mode &optional arg)
   (interactive)
-  "Move the zipper backwards (from expression at point)."
+  "Move the zipper backwards (from expression at point) in SELECTION-MODE."
   (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
 						   #'gopcaml-move-zipper-left
 						   'backward
-						   initial))))
+						   initial))
+				nil
+				selection-mode))
+
+(defun gopcaml-backward-sexp (&optional arg)
+  "Move the zipper dow (from expression at point)."
+  (interactive) (gopcaml-backward-sexp-full nil arg))
+
+(defun gopcaml-backward-sexp-selection (&optional arg)
+  "Move the zipper down (from expression at point)."
+  (interactive) (gopcaml-backward-sexp-full t arg))
 
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
@@ -349,46 +422,73 @@ removes all existing overlays of type GROUP if present."
   (interactive)
   (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-backwards))
 
+(defun gopcaml-state-filter (cmd)
+    "Determines whether a CMD can be carried out in current Gopcaml mode state."
+    (when (gopcaml-state-available-filter)
+      cmd))
 
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
-    (define-key gopcaml-map (kbd "C-M-f") #'gopcaml-forward-sexp)
-    (define-key gopcaml-map (kbd "C-M-b") #'gopcaml-backward-sexp)
+    (define-key gopcaml-map (kbd "C-M-f")
+      '(menu-item "" gopcaml-forward-sexp ))
+    (define-key gopcaml-map (kbd "C-M-b")
+      '(menu-item "" gopcaml-backward-sexp))
 
-    (define-key gopcaml-map (kbd "C-M-u") #'gopcaml-backward-up-list)
-    (define-key gopcaml-map (kbd "C-M-d") #'gopcaml-down-list)
+    (define-key gopcaml-map (kbd "C-M-u")
+      '(menu-item "" gopcaml-backward-up-list))
+    (define-key gopcaml-map (kbd "C-M-d")
+      '(menu-item "" gopcaml-down-list ))
 
-    (define-key gopcaml-map (kbd "C-M-n") #'gopcaml-forward-list)
-    (define-key gopcaml-map (kbd "C-M-p") #'gopcaml-backward-list)
-
-    (define-key gopcaml-map (kbd "C-M-k") '(lambda ()
-					 (interactive)
-					 (move-gopcaml-zipper
-					  #'gopcaml-zipper-kill-region)))
-    (define-key gopcaml-map (kbd "M-w") '(lambda ()
-					 (interactive)
-					 (gopcaml-copy-region)))
-    (define-key gopcaml-map (kbd "C-M-S-n")  '(lambda ()
-					 (interactive)
-					 (gopcaml-zipper-move-forwards)))
-    (define-key gopcaml-map (kbd "C-M-S-f") '(lambda ()
-					 (interactive)
-					 (gopcaml-zipper-move-forwards)))
-    (define-key gopcaml-map (kbd "C-M-S-p") '(lambda ()
-					 (interactive)
-					 (gopcaml-zipper-move-backwards)))
-    (define-key gopcaml-map (kbd "C-M-S-b") '(lambda ()
-					 (interactive)
-					 (gopcaml-zipper-move-backwards)))
-    (define-key gopcaml-map (kbd "C-M-t") '(lambda ()
-					 (interactive)
-					 (gopcaml-zipper-transpose)))
+    (define-key gopcaml-map (kbd "C-M-n")
+      '(menu-item "" gopcaml-forward-list))
+    (define-key gopcaml-map (kbd "C-M-p")
+      '(menu-item "" gopcaml-backward-list))
+    (define-key gopcaml-map (kbd "C-M-k")
+      '(menu-item "" (lambda () (interactive) (move-gopcaml-zipper #'gopcaml-zipper-kill-region))
+		  ))
+    (define-key gopcaml-map (kbd "M-w")
+      '(menu-item "" (lambda () (interactive) (gopcaml-copy-region))
+		  ))
+    (define-key gopcaml-map (kbd "C-M-S-n")
+      '(menu-item "" (lambda () (interactive) (gopcaml-zipper-move-forwards))
+		  ))
+    (define-key gopcaml-map (kbd "C-M-S-f")
+      '(menu-item "" (lambda () (interactive) (gopcaml-zipper-move-forwards))
+		  ))
+    (define-key gopcaml-map (kbd "C-M-S-p")
+      '(menu-item "" (lambda () (interactive) (gopcaml-zipper-move-backwards))
+		  ))
+    (define-key gopcaml-map (kbd "C-M-S-b")
+      '(menu-item "" (lambda () (interactive) (gopcaml-zipper-move-backwards))
+		  ))
+    (define-key gopcaml-map (kbd "C-M-t")
+      '(menu-item "" (lambda () (interactive) (gopcaml-zipper-transpose))
+		  ))
     ;; (define-key gopcaml-map (kbd "T") '(lambda ()
     ;; 					 (interactive)
     ;; 					 (gopcaml-zipper-type)))
     ;; (define-key gopcaml-map (kbd "i") #'gopcaml-zipper-insert-letdef)
     gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
+
+(defvar gopcaml-selection-zipper-mode-map
+  (let ((gopcaml-map (make-sparse-keymap)))
+    (define-key gopcaml-map (kbd "C-M-S-f")
+      '(menu-item "" gopcaml-forward-sexp-selection))
+    (define-key gopcaml-map (kbd "C-M-S-b")
+      '(menu-item "" gopcaml-backward-sexp-selection))
+
+    (define-key gopcaml-map (kbd "C-M-S-u")
+      '(menu-item "" gopcaml-backward-up-list-selection))
+    (define-key gopcaml-map (kbd "C-M-S-d")
+      '(menu-item "" gopcaml-down-list-selection))
+
+    (define-key gopcaml-map (kbd "C-M-S-n")
+      '(menu-item "" gopcaml-forward-list-selection))
+    (define-key gopcaml-map (kbd "C-M-S-p")
+      '(menu-item "" gopcaml-backward-list-selection))
+    gopcaml-map)
+  "Map used when in zipper mode for selections.  ari ari!")
 
 (defun gopcaml-on-exit-zipper-mode ()
   "Exit gopcaml-zipper-mode."
@@ -402,7 +502,8 @@ removes all existing overlays of type GROUP if present."
 Cancels itself, if this buffer was killed.
 SECS is the periodicity of the timer.
 REPEAT dictates whether the timer should be called repeatedly.
-FUNCTION is the function to call on timer"
+FUNCTION is the function to call on timer.
+ARGS are parameters to pass to the function."
   (let* (;; Chicken and egg problem.
          (fns (make-symbol "local-idle-timer"))
          (timer (apply 'run-with-idle-timer secs repeat fns args))
@@ -427,25 +528,52 @@ END is the end of the edited text region."
       )
     ))
 
+
+
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
-  (define-key gopcaml-mode-map (kbd "C-M-l") #'gopcaml-highlight-current-structure-item )
-  (define-key gopcaml-mode-map (kbd "C-M-z") #'gopcaml-enter-zipper-mode )
+  ;; (define-key gopcaml-mode-map (kbd "C-M-l") '(menu-item "" gopcaml-highlight-current-structure-item
+  ;; 						    :filter gopcaml-state-filter))
+  ;; (define-key gopcaml-mode-map (kbd "C-M-z") '(menu-item "" gopcaml-enter-zipper-mode
+  ;; 						    :filter gopcaml-state-filter) )
   ;; (define-key gopcaml-map (kbd "C-M-f") #'gopcaml-forward-sexp)
   ;; (define-key gopcaml-map (kbd "C-M-b") #'gopcaml-backward-sexp)
-
-  (define-key gopcaml-mode-map (kbd "C-M-u") #'gopcaml-backward-up-list)
-  (define-key gopcaml-mode-map (kbd "C-M-d") #'gopcaml-down-list)
-
-  (define-key gopcaml-mode-map (kbd "C-M-n") #'gopcaml-forward-list)
-  (define-key gopcaml-mode-map (kbd "C-M-p") #'gopcaml-backward-list)
-
   (setq-local end-of-defun-function #'gopcaml-end-defun)
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
 
-  (define-key gopcaml-mode-map (kbd "C-M-f") #'gopcaml-forward-sexp)
-  (define-key gopcaml-mode-map (kbd "C-M-b") #'gopcaml-backward-sexp)
+  (define-key gopcaml-mode-map (kbd "C-M-u") '(menu-item "" gopcaml-backward-up-list
+						    :filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-M-d") '(menu-item "" gopcaml-down-list
+						    :filter gopcaml-state-filter))
+
+  (define-key gopcaml-mode-map (kbd "C-M-n") '(menu-item "" gopcaml-forward-list
+						    :filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-M-p") '(menu-item "" gopcaml-backward-list
+						    :filter gopcaml-state-filter))
+
+
+  (define-key gopcaml-mode-map (kbd "C-M-f") '(menu-item "" gopcaml-forward-sexp
+						    :filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-M-b") '(menu-item "" gopcaml-backward-sexp
+						    :filter gopcaml-state-filter))
+
+
+  (define-key gopcaml-mode-map (kbd "C-M-S-u") '(menu-item "" gopcaml-backward-up-list-selection
+						    :filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-M-S-d") '(menu-item "" gopcaml-down-list-selection
+						    :filter gopcaml-state-filter))
+
+  (define-key gopcaml-mode-map (kbd "C-M-S-n") '(menu-item "" gopcaml-forward-list-selection
+						    :filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-M-S-p") '(menu-item "" gopcaml-backward-list-selection
+						    :filter gopcaml-state-filter))
+
+
+  (define-key gopcaml-mode-map (kbd "C-M-S-f") '(menu-item "" gopcaml-forward-sexp-selection
+						    :filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
+						    :filter gopcaml-state-filter))
 
   (setq-local forward-sexp-function nil)
   ;; (setq-local forward-sexp-function #'gopcaml-forward-sexp)

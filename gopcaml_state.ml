@@ -324,16 +324,11 @@ module State = struct
 
 
   module DirtyRegion = struct
-    (** tracks dirty extent of the current buffer as a range
-        (in relation to the current buffer)
-
-        we don't track it in relation to the ast due to the
-        markers delimiting each structure item
-        use automatically updating to buffer changes
-    *)
+    (** Tracks the ast - either clean, or dirty (and whether it has
+       been changed since last compile attempt) *)
     type t =
       | Clean of parse_tree
-      | Dirty of parse_tree option
+      | Dirty of (parse_tree option * bool) 
 
     let get_dirty_region = function
       | Clean _ -> None
@@ -349,7 +344,9 @@ module State = struct
     (** updates the parse tree to denote the range of the dirty region *)
     let update (s:t) (_s,_e,_l: (int * int * int)) : t =
       (* todo: track detailed changes *)
-      match (s : t) with | Clean tree -> Dirty (Some tree) | Dirty tree -> Dirty tree
+      match (s : t) with
+      | Clean tree -> Dirty (Some tree, false)
+      | Dirty (tree,_) -> Dirty (tree, false)
 
 
     (** builds an updated parse_tree (updating any dirty regions) *)
@@ -363,9 +360,8 @@ module State = struct
     let to_tree_immediate (dr:t) (_file_type: Filetype.t) : parse_tree option =
       match dr with
       | Clean tree -> Some tree
-      | Dirty tree -> tree
+      | Dirty (tree, _) ->  tree
 
-    
   end
 
   (** type of state of plugin - pre-validation *)
@@ -402,8 +398,25 @@ module State = struct
     let of_state_immediate ({ file_type; parse_tree }:t) =
       (match parse_tree with
        | DirtyRegion.Clean tree -> Some tree
-       | DirtyRegion.Dirty tree -> tree)
-    |> Option.map ~f:(fun tree -> ({file_type; parse_tree = tree}))
+       | DirtyRegion.Dirty (tree,_) ->  tree
+      )
+      |> Option.map ~f:(fun tree -> ({file_type; parse_tree = tree}))
+
+    (** attempts to retrieve the state immediately - even if it is old or outdated  *)
+    let try_ensure ({ file_type; parse_tree } as state :t) =
+      (match parse_tree with
+       | DirtyRegion.Clean _ -> None, true
+       | DirtyRegion.Dirty (_,false) -> None, false
+       | DirtyRegion.Dirty (tree,true)  -> 
+         let parse_tree = DirtyRegion.to_tree state.parse_tree state.file_type in
+         begin
+           match parse_tree with
+           | Some tree ->
+             Some ({file_type=file_type; parse_tree = (DirtyRegion.create tree)} :t), true
+           | None  ->
+             Some ({file_type=file_type; parse_tree = DirtyRegion.Dirty (tree,false)}:t), false
+         end
+      )
 
     type t = s
 
@@ -419,7 +432,7 @@ module State = struct
 
   let default = {
     file_type = Interface;
-    parse_tree = DirtyRegion.Dirty None;
+    parse_tree = DirtyRegion.Dirty (None,false);
   }
 
 end
@@ -454,7 +467,7 @@ let setup_gopcaml_state
   let state = State.{
       file_type = file_type;
       parse_tree = match parse_tree with
-          None -> DirtyRegion.Dirty None
+          None -> DirtyRegion.Dirty (None, false)
         | Some tree -> DirtyRegion.create tree;
     } in
   Buffer_local.set state_var (Some state) current_buffer
@@ -472,7 +485,7 @@ let get_gopcaml_file_type ?current_buffer ~state_var () =
 let set_gopcaml_file_type ?current_buffer ~state_var file_type =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
-  let state = State.{state with parse_tree=Dirty None; file_type = file_type } in
+  let state = State.{state with parse_tree=Dirty (None, true); file_type = file_type } in
   Buffer_local.set state_var (Some state) current_buffer
 [@@warning "-23"]
 
@@ -599,16 +612,16 @@ let inside_let_def state point =
         | Parsetree.Psig_module { pmd_type; _ } -> is_let_def_mod_type pmd_type
         | Parsetree.Psig_recmodule decls -> 
           List.fold ~init:false ~f:(fun acc { pmd_type; _ } -> acc || is_let_def_mod_type  pmd_type)
-          decls
+            decls
         | Parsetree.Psig_modtype {  pmtd_type; _  } ->
           Option.map ~f:is_let_def_mod_type pmtd_type |> Option.value ~default:false
         | Parsetree.Psig_include { pincl_mod; _ } -> is_let_def_mod_type pincl_mod
         | Parsetree.Psig_class c_decls -> 
           List.fold ~init:false ~f:(fun acc { pci_expr; _ } -> acc || is_let_def_class_type pci_expr)
-          c_decls
+            c_decls
         | Parsetree.Psig_class_type c_decls -> 
           List.fold ~init:false ~f:(fun acc { pci_expr; _ } -> acc || is_let_def_class_type  pci_expr)
-          c_decls
+            c_decls
         | _  -> false
       ) else false
   and is_in_value_binding ({ pvb_expr; pvb_loc; _ }: Parsetree.value_binding) =
@@ -809,15 +822,21 @@ let retrieve_gopcaml_state ?current_buffer ~state_var () =
   if Option.is_some state then Buffer_local.set state_var state current_buffer;
   Some v_state
 
+(** retrieves the gopcaml state value, attempting to construct the
+    parse tree if it has not already been made *)
+let check_gopcaml_state_available ?current_buffer ~state_var () =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  let state = Buffer_local.get_exn state_var current_buffer in
+  let (state,ensured) = State.Validated.try_ensure state in
+  if Option.is_some state then Buffer_local.set state_var state current_buffer;
+  ensured
+
 (** retrieves the gopcaml state value, without attempting to construct the
     parse tree if it has not already been made *)
 let retrieve_gopcaml_state_immediate ?current_buffer ~state_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
   State.Validated.of_state_immediate state
-
-
-
 
 (** retrieve the points enclosing structure at the current position *)
 let retrieve_enclosing_structure_bounds ?current_buffer ~state_var point =
@@ -884,7 +903,7 @@ let find_nearest_defun_end ?current_buffer ~state_var point line =
 
 
 (** returns whether the point is inside a let def (and thus when
-   expanding let we should include an in) *)
+    expanding let we should include an in) *)
 let inside_defun ?current_buffer ~state_var point =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state_immediate ~current_buffer ~state_var ()
