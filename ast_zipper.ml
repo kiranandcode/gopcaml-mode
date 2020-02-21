@@ -206,7 +206,12 @@ type t =
 (* Huet's zipper for asts *)
 type zipper =
   | Top
-  | Node of {bounds: (TextRegion.t * unwrapped_type) option; below: t list; parent: zipper; above: t list; }
+  | Node of {
+      bounds: (TextRegion.t * unwrapped_type) option;
+      below: t list;
+      parent: zipper;
+      above: t list;
+    }
 
 type location =
   | MkLocation of t * zipper
