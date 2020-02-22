@@ -1,7 +1,6 @@
 open Core
 open Ecaml
 
-
 module State = struct
 
   module Filetype = struct
@@ -45,8 +44,6 @@ module State = struct
            ~name:"gopcaml-zipper-location"
            Sexplib0.Sexp_conv.sexp_of_opaque)
   end
-
-
 
   (** region of the buffer  *)
   type region = {
@@ -199,8 +196,8 @@ module State = struct
         with Parser.Error -> 
           message (Printf.sprintf "parsing got error parse.error");
           None
-           | Syntaxerr.Error err ->
-             message (Printf.sprintf "parsing got error %s" (ExtLib.dump err));
+           | Syntaxerr.Error _ ->
+             (* message (Printf.sprintf "gopcaml: syntax error" ); *)
              None
       else match file_type with
         | Interface -> Some (MkParseTree (Intf []))
@@ -345,8 +342,8 @@ module State = struct
     let update (s:t) (_s,_e,_l: (int * int * int)) : t =
       (* todo: track detailed changes *)
       match (s : t) with
-      | Clean tree -> Dirty (Some tree, false)
-      | Dirty (tree,_) -> Dirty (tree, false)
+      | Clean tree -> Dirty (Some tree, true)
+      | Dirty (tree,_) -> Dirty (tree, true)
 
 
     (** builds an updated parse_tree (updating any dirty regions) *)
@@ -437,7 +434,6 @@ module State = struct
 
 end
 
-
 (** sets up the gopcaml-mode state - intended to be called by the startup hook of gopcaml mode*)
 let setup_gopcaml_state
     ~state_var ~interface_extension_var ~implementation_extension_var =
@@ -472,14 +468,12 @@ let setup_gopcaml_state
     } in
   Buffer_local.set state_var (Some state) current_buffer
 
-
 (** retrieve the gopcaml state *)
 let get_gopcaml_file_type ?current_buffer ~state_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
   let file_type_name = State.Filetype.to_string state.State.file_type in
   file_type_name
-
 
 (** update the file type of the variable   *)
 let set_gopcaml_file_type ?current_buffer ~state_var file_type =
@@ -533,7 +527,7 @@ let find_nearest_expression list point =
           List.map ~f:remove_meta right)
       | _ -> None
     end
-  | v -> v 
+  | v -> v
 
 let list_split_last ls = 
   let rec loop ls acc =
@@ -568,7 +562,6 @@ let build_zipper (state: State.Validated.t) point =
           Ast_zipper.make_zipper_intf left current right
         )
   end
-
 
 let find_enclosing_structure (state: State.Validated.t) point : State.parse_item option =
   let open State in
@@ -773,7 +766,6 @@ let apply_iterator (item: State.parse_item) iter f  =
 let find_enclosing_bounds (state: State.Validated.t) ~point =
   find_enclosing_structure state point
   |> Option.bind ~f:begin fun expr ->
-    (* message (Printf.sprintf "enclosing structure: %s"(ExtLib.dump expr)); *)
     let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
     apply_iterator expr iter getter
     |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
@@ -793,7 +785,6 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
 
 (** updates the dirty region of the parse tree *)
 let update_dirty_region ?current_buffer ~state_var (s,e,l) =
-  (* message (Printf.sprintf "updating dirty region with s:%d-%d l:%d" s e l); *)
   let (let+) x f = ignore @@ Option.map ~f x in
   let open State in
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -880,7 +871,7 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
 let find_nearest_defun ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
-  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0))
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
                         (Position.to_int point - 1)
                         (line + 1)
@@ -945,7 +936,19 @@ let move_zipper_left ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |>  abstract_zipper_to_bounds  
+  |>  abstract_zipper_to_bounds
+
+(** attempts to move the current zipper left *)
+let ensure_zipper_space ?current_buffer ~zipper_var (pre_column,pre_line) (post_column,post_line) () =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:(fun zipper -> Ast_zipper.update_zipper_space_bounds zipper
+                       (pre_column,pre_line) (post_column,post_line))
+  |> Option.map ~f:(fun zipper ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      zipper
+    )
+  |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper right *)
 let move_zipper_right ?current_buffer ~zipper_var () =
@@ -956,8 +959,7 @@ let move_zipper_right ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |>  abstract_zipper_to_bounds  
-
+  |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper down *)
 let move_zipper_down ?current_buffer ~zipper_var () =
@@ -968,8 +970,7 @@ let move_zipper_down ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |>  abstract_zipper_to_bounds  
-
+  |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper up *)
 let move_zipper_up ?current_buffer ~zipper_var () =
@@ -1021,6 +1022,29 @@ let zipper_delete_current ?current_buffer ~zipper_var () =
       (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
     )
 
+let zipper_move_up ?current_buffer ~zipper_var ()  =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:(Ast_zipper.move_up)
+  |> Option.map ~f:(fun (zipper,pos,(ds,de)) ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      (Position.of_int_exn (pos + 1),
+       (Position.of_int_exn (ds + 1),
+        Position.of_int_exn (de + 1)
+       ))
+    )
+
+let zipper_move_down ?current_buffer ~zipper_var ()  =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_zipper ~current_buffer ~zipper_var
+  |> Option.bind ~f:(Ast_zipper.move_down)
+  |> Option.map ~f:(fun (zipper,pos,(ds,de)) ->
+      Buffer_local.set zipper_var (Some zipper) current_buffer;
+      (Position.of_int_exn (pos + 1),
+       (Position.of_int_exn (ds + 1),
+        Position.of_int_exn (de + 1)
+       ))
+    )
 
 (** inserts a let def using the zipper, returning the text to insert,
     and the point at which to insert it *)

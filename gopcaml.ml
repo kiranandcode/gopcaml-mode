@@ -1,7 +1,9 @@
 open Core
+
 open Ecaml
 
 let version = 0.1
+
 let gopcaml_version = "0.0"
 
 module Variables = struct
@@ -50,6 +52,7 @@ module Customizable = struct
       ~customization_type:(Customization.Type.Repeat Customization.Type.String)
       ~standard_value:["mli"]
       ()
+
 
   let implementation_extensions_var = Customization.defcustom
       ~show_form:true
@@ -255,6 +258,46 @@ let define_functions () =
      |> Option.map ~f:(fun (a,b) -> [a; b])
     );
   defun
+    ("gopcaml-zipper-move-elem-up" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Moves the current element up and returns the bounds to transform. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.zipper_move_up ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun (a,(b,c)) -> [a; b; c])
+    );
+  defun
+    ("gopcaml-zipper-space-update" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Updates the space aroound the current item. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open pre_col =
+       required "pre_col" Value.Type.int
+     and pre_line = 
+       required "pre_line" Value.Type.int
+     and post_col = 
+       required "post_col" Value.Type.int
+     and post_line = 
+       required "post_line" Value.Type.int in
+     Gopcaml_state.ensure_zipper_space ~zipper_var:Variables.zipper_var
+       (pre_col,pre_line) (post_col, post_line) ()
+     |> Option.map ~f:(fun (a,b) -> [a; b])
+    );
+  defun
+    ("gopcaml-zipper-move-elem-down" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Moves the current element up and returns the bounds to transform. |}
+    (Returns (Value.Type.option (Value.Type.list Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.zipper_move_down ~zipper_var:Variables.zipper_var in
+     op ()
+     |> Option.map ~f:(fun (a,(b,c)) -> [a; b; c])
+    );
+  defun
     ("gopcaml-begin-zipper-swap" |> Symbol.intern)
     [%here]
     ~docstring:{| Updates the current zipper to swap the current element - returning
@@ -339,9 +382,9 @@ let define_functions () =
      let%map_open point = required "point" Value.Type.int  in
      let op = Gopcaml_state.inside_defun ~state_var:Variables.state_var in
      op point)
-  
-    
-    
+
+
+
 let gopcaml_mode =
   let sym = ("gopcaml-mode" |> Symbol.intern) in
   Major_mode.define_derived_mode

@@ -3,6 +3,9 @@ open Core
 module TextRegion : sig
   module Diff : sig
     type t
+    val of_pair : line:int -> col:int -> t
+    val combine : t -> t -> t
+    val to_string : t -> string
     val negate : t -> t
     val add_newline_with_indent: indent:int -> t -> t 
     val update_lexing_position : Lexing.position -> t -> Lexing.position 
@@ -13,6 +16,8 @@ module TextRegion : sig
   val of_location: Location.t -> t
 
   val to_bounds : t -> (int * int)
+
+  val to_string : t -> string
 
   val shift_region : t -> Diff.t -> t
 
@@ -42,6 +47,8 @@ module TextRegion : sig
 
   val swap_diff : t -> t -> (Diff.t * Diff.t) option
 
+  val diff_between : t -> t -> Diff.t option
+
   val to_shift_from_start: t -> Diff.t
 
 end = struct
@@ -49,7 +56,13 @@ end = struct
   module Diff = struct
     type t = int * int
 
+    let of_pair ~line ~col = (line,col)
+
     let negate (line,col) = (-line,-col)
+
+    let combine (l1,c1) (l2,c2) = (l1 + l2,c1 + c2)
+
+    let to_string (l1,c1) = Printf.sprintf "(%d,%d)" l1 c1
 
     (* increments the diff by 1 newline + indentation *)
     let add_newline_with_indent ~indent (line,col)  =
@@ -96,6 +109,9 @@ end = struct
 
   let to_bounds Position.({col=cs;_},{col=ce; _}) = (cs,ce)
 
+  let to_string Position.({col=cs;line=ls},{col=ce; line=le}) =
+    Printf.sprintf "{col: %d - %d; line: %d - %d}" cs ce ls le
+
   let shift_region (r_start, r_end) shift =
     let open Position in
     r_start + shift, r_end + shift
@@ -132,7 +148,8 @@ end = struct
     }, retrieve_bounds
 
   let ast_bounds_mapper ~diff =
-    {Ast_mapper.default_mapper with location = (fun _ ({ loc_start; loc_end; _ } as loc) ->
+    {Ast_mapper.default_mapper with
+     location = (fun _ ({ loc_start; loc_end; _ } as loc) ->
          {loc with
           loc_start= Diff.update_lexing_position loc_start diff;
           loc_end= Diff.update_lexing_position loc_end diff; }
@@ -198,6 +215,19 @@ end = struct
     let backwards_shift = (b_l1 - a_l1, b_c1 - a_c1) in
     Some (forward_shift,backwards_shift)
 
+  let diff_between
+      ((_, { line=a_l1; col=a_c1; }): t)
+      (({ line=b_l1; col=b_c1; }, _): t) =
+    let (let+) x f = Option.bind ~f x in
+    let unwrap vl = match  vl with -1 -> None | v -> Some v in
+    let+ a_l1 = unwrap a_l1 in
+    let+ a_c1 = unwrap a_c1 in
+    let+ b_l1 = unwrap b_l1 in
+    let+ b_c1 = unwrap b_c1 in
+    let backwards_shift = (a_l1 - b_l1, a_c1 - b_c1) in
+    Some (backwards_shift)
+
+
   let to_shift_from_start ((_,{ line=a_l2; col=a_c2; }): t) =
     (a_l2,a_c2)
 
@@ -212,6 +242,8 @@ type t =
   | Structure_item of Parsetree.structure_item
   | Sequence of (TextRegion.t * unwrapped_type) option * t list * t * t list
   | EmptySequence of TextRegion.t * unwrapped_type
+
+
 
 (* Huet's zipper for asts *)
 type zipper =
@@ -243,6 +275,29 @@ let rec t_to_bounds = function
     List.map ~f:t_to_bounds (left @ elem :: right)
     |> List.fold ~f:TextRegion.union ~init:(fst region)
   | EmptySequence (b,_) -> b
+
+let t_shift_by_offset ~diff t =
+  let rec map t =
+    let mapper = TextRegion.ast_bounds_mapper ~diff in
+    match t with
+    | Signature_item si -> Signature_item (mapper.signature_item mapper si)
+    | Structure_item si  -> Structure_item (mapper.structure_item mapper si)
+    | Sequence (bounds, left,elem,right) ->
+      let left = List.map ~f:map left in
+      let right = List.map ~f:map right in
+      let elem = map elem in
+      let bounds = match bounds with
+        | None -> None
+        | Some (region,ty) ->
+          let region = TextRegion.shift_region region diff in
+          Some (region,ty)
+      in
+      Sequence (bounds, left, elem, right)
+    | EmptySequence (region,ty)  ->
+      let region = TextRegion.shift_region region diff in
+      EmptySequence (region,ty) in
+  map t
+
 
 
 let t_list_to_bounds ls =
@@ -423,9 +478,6 @@ let rec move_zipper_to_point point line forward =
     let region_column = TextRegion.column_start region in 
     let line_pos =
       if not forward then begin
-        Ecaml.message (Printf.sprintf "%s %d <= %d || %d < %d" "Comparing"
-                         region_line line region_column point
-                      );
         if (not (region_line = 0) && region_line <= line) ||
            (region_line = 0 &&  region_column <= point)
         then 0
@@ -477,12 +529,12 @@ let rec move_zipper_to_point point line forward =
             else
               move_zipper_to_point point line forward
                 (MkLocation (c, Node {below=l; parent; above=r; bounds}))
-            | (l,(_, c) :: r) ->
-              let l = List.map ~f:snd l |> List.rev in
-              let r = List.map ~f:snd r in
-              move_zipper_to_point point line forward
-                (MkLocation (c, Node {below=l; parent; above=r; bounds}))
-            | _ -> assert false
+          | (l,(_, c) :: r) ->
+            let l = List.map ~f:snd l |> List.rev in
+            let r = List.map ~f:snd r in
+            move_zipper_to_point point line forward
+              (MkLocation (c, Node {below=l; parent; above=r; bounds}))
+          | _ -> assert false
           end
     end
   | (MkLocation (current,parent) as v) ->
@@ -513,9 +565,6 @@ let rec move_zipper_broadly_to_point point line forward =
     let region_column = TextRegion.column_start region in 
     let line_pos =
       if not forward then begin
-        Ecaml.message (Printf.sprintf "%s %d <= %d || %d < %d" "Comparing"
-                         region_line line region_column point
-                      );
         if (not (region_line = 0) && region_line <= line) ||
            (region_line = 0 &&  region_column <= point)
         then 0
@@ -567,12 +616,12 @@ let rec move_zipper_broadly_to_point point line forward =
             else
               move_zipper_broadly_to_point point line forward
                 (MkLocation (c, Node {below=l; parent; above=r; bounds}))
-            | (l,(_, c) :: r) ->
-              let l = List.map ~f:snd l |> List.rev in
-              let r = List.map ~f:snd r in
-              move_zipper_broadly_to_point point line forward
-                (MkLocation (c, Node {below=l; parent; above=r; bounds}))
-            | _ -> assert false
+          | (l,(_, c) :: r) ->
+            let l = List.map ~f:snd l |> List.rev in
+            let r = List.map ~f:snd r in
+            move_zipper_broadly_to_point point line forward
+              (MkLocation (c, Node {below=l; parent; above=r; bounds}))
+          | _ -> assert false
           end
     end
   | (MkLocation (current,parent) as v) ->
@@ -676,10 +725,60 @@ module Synthesis = struct
       let bounds = update_meta_bound bounds in
       let parent = Node {below=current::below; parent; above; bounds} in
       Some (MkLocation (empty_let_structure,parent), (text,editing_pos))
+  
 
 
 end
 
+let insert_element (MkLocation (current,parent)) (element: t)  =
+  let (let+) x f = Option.bind ~f x in
+  match parent with
+  | Top -> None
+  | Node {below; parent; above; bounds} ->
+    (* range of the current item *)
+    let current_range = t_to_bounds current in
+    let insert_range = t_to_bounds element in
+    let editing_pos = snd (TextRegion.to_bounds current_range) in
+    (* position of the start of the empty structure *)
+    let+ shift_backwards =
+      TextRegion.diff_between current_range insert_range 
+      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0)
+      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) in
+
+    let element =
+      (* update the structure to be positioned at the right location *)
+      t_shift_by_offset ~diff:shift_backwards element in
+    (* calculate the diff after inserting the item *)
+    let+ diff =
+      insert_range
+      |> TextRegion.to_diff
+      (* we're inserting rather than deleting *)
+      |> Option.map ~f:TextRegion.Diff.negate 
+      (* newline after end of current element *)
+      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) 
+      (* 1 more newline and then offset *)
+      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) 
+      (* newline after end of inserted element *)
+      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) in
+    let update_bounds = update_bounds ~diff in
+    let update_meta_bound bounds = 
+      match bounds with
+        None -> None
+      | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
+    in
+    (* update parent *)
+    let rec update_parent parent = match parent with
+      | Top -> Top
+      | Node {below;parent;above; bounds} ->
+        let above = List.map ~f:update_bounds above in
+        let bounds = update_meta_bound bounds in
+        let parent = update_parent parent in 
+        Node {below; parent; above; bounds} in
+    let parent = update_parent parent in
+    let above = List.map ~f:update_bounds above in
+    let bounds = update_meta_bound bounds in
+    let parent = Node {below=current::below; parent; above; bounds} in
+    Some (MkLocation (element,parent), editing_pos)
 
 
 let go_up (MkLocation (current,parent)) =
@@ -706,6 +805,40 @@ let go_right (MkLocation (current,parent) as loc) =
   | Node { below; parent; above=r::right; bounds } ->
     Some (MkLocation (r, Node {below=current::below; parent; above=right; bounds}))
   | _ -> go_up loc
+
+let update_zipper_space_bounds (MkLocation (current,parent))
+    (pre_column,pre_line) (post_column,post_line) =
+  let pre_diff = TextRegion.Diff.of_pair ~line:pre_line ~col:pre_column
+               |> TextRegion.Diff.negate in
+  let post_diff = TextRegion.Diff.of_pair ~line:post_line ~col:post_column
+                  |> TextRegion.Diff.negate in
+  let current = t_shift_by_offset ~diff:pre_diff current in
+  let diff = TextRegion.Diff.combine pre_diff post_diff in
+  let update_bounds = update_bounds ~diff in
+  let update_meta_bound bounds = 
+    match bounds with None -> None
+                    | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
+  in
+  (* update parent *)
+  let rec update_parent parent = match parent with
+      | Top -> Top
+      | Node {below;parent;above; bounds} ->
+        let above = List.map ~f:update_bounds above in
+        let bounds = update_meta_bound bounds in
+        let parent = update_parent parent in 
+        Node {below; parent; above; bounds} in
+  match parent with
+  | Top -> None
+  | Node {below; parent=up; above=right; bounds} ->
+    let right = List.map ~f:update_bounds right in
+    let parent = update_parent up in
+    let bounds = update_meta_bound bounds in
+      Some (MkLocation(current, Node{below;parent;above=right; bounds}))
+
+    
+
+
+
 
 (** deletes the current element of the zipper  *)
 let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
@@ -744,7 +877,25 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       Some (MkLocation (EmptySequence (TextRegion.extend_region bounds diff,ty), up)) 
     | Node {below=[]; parent=up; above=[]; _} ->
       remove_current (MkLocation (current, up)) in
-  remove_current loc |> Option.map ~f:(fun v -> v,current_bounds) 
+  remove_current loc |> Option.map ~f:(fun v -> v,current_bounds)
+  
+let move_up (MkLocation (current,parent) as loc)  =
+  let (let+) x f = Option.bind ~f x in
+  match parent with
+  | Top -> None
+  | Node _ ->
+    let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
+    let+ loc = go_up loc in
+    let+ loc = go_left loc in
+    let+ (loc,insert_pos) = insert_element loc current in
+    Some (loc, insert_pos, TextRegion.to_bounds bounds)
+
+let move_down (MkLocation (current,_) as loc)  =
+  let (let+) x f = Option.bind ~f x in
+  let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
+  let+ loc = go_down loc in
+  let+ (loc,insert_pos) = insert_element loc current in
+  Some (loc, insert_pos, TextRegion.to_bounds bounds)
 
 (** swaps two elements at the same level, returning the new location  *)
 let calculate_swap_bounds (MkLocation (current,parent)) =

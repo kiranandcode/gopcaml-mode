@@ -79,6 +79,10 @@
 ** DONE add support for selections
    CLOSED: [2020-02-21 Fri 18:23]
 *** shift-commands - don't place a face on the overlay
+** DONE C-M-t fix transpose sexp
+   CLOSED: [2020-02-21 Fri 12:33]
+** TODO Support move out of region
+** TODO Support zipper to range
 * Inessential todos
 ** TODO - move zipper to point and kill
 *** DONE C-M-k - kill sexp
@@ -88,7 +92,7 @@
 ** TODO M-a, M-e - move sentences - module
 ** TODO M-k - kill sentence - kill module
 ** TODO C-M-l reposition to buffer - fix to work with ocaml
-** TODO C-M-t fix transpose sexp
+
 * Longer term Todos
 ** TODO Implement move into
 ** TODO Implement move outof
