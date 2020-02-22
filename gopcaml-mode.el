@@ -125,6 +125,20 @@ removes all existing overlays of type GROUP if present."
 	     )
 	    (goto-char start)
 	    t)
+	   ((and
+	     initial
+	     (< point start)
+	     (equal direction 'forward)
+	     )
+	    (goto-char start)
+	    t)
+	   ((and
+	     initial
+	     (> point end)
+	     (equal direction 'backward)
+	     )
+	    (goto-char end)
+	    t)
 	   (t
 	    (setq area (car (funcall zipper-fn)))
 	    (if area
@@ -141,6 +155,8 @@ removes all existing overlays of type GROUP if present."
 		  )
 	      nil))))
       nil)))
+
+
 
 (defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor selection-mode)
   "Start gopcaml-zipper mode using ZIPPER-CONSTRUCTOR and perform OPERATION."
