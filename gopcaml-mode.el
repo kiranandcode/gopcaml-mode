@@ -371,8 +371,8 @@ removes all existing overlays of type GROUP if present."
       (setq post-change (gopcaml-ensure-space-between-forward))
       (setq post-change
 	    (list
-	     (-  (cadr post-change)  (car post-change))
-	     (-  (cadddr post-change) (caddr post-change) ))
+	     (-  (car post-change)  (cadr post-change))
+	     (-  (caddr post-change) (cadddr post-change) ))
 	    )
       (goto-char start)
       (setq pre-change (gopcaml-ensure-space-between-backward))
@@ -384,7 +384,6 @@ removes all existing overlays of type GROUP if present."
        (car pre-change) (cadr pre-change)
        (car post-change) (cadr post-change))))
       (when area
-	(message "got area from high overlord!")
 	(move-overlay gopcaml-zipper-overlay (car area) (cadr area))
 	t))))
 

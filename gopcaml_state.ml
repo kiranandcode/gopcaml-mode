@@ -941,6 +941,10 @@ let move_zipper_left ?current_buffer ~zipper_var () =
 (** attempts to move the current zipper left *)
 let ensure_zipper_space ?current_buffer ~zipper_var (pre_column,pre_line) (post_column,post_line) () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  Ecaml.message (Printf.sprintf "called with (%d,%d) (%d,%d)"
+                   pre_column pre_line
+                   post_column post_line
+                );
   retrieve_zipper ~current_buffer ~zipper_var
   |> Option.bind ~f:(fun zipper -> Ast_zipper.update_zipper_space_bounds zipper
                        (pre_column,pre_line) (post_column,post_line))

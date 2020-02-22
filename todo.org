@@ -81,7 +81,15 @@
 *** shift-commands - don't place a face on the overlay
 ** DONE C-M-t fix transpose sexp
    CLOSED: [2020-02-21 Fri 12:33]
-** TODO Support move out of region
+** DONE Fix whitespace
+   CLOSED: [2020-02-21 Fri 19:14]
+** DONE Support move out of region
+   CLOSED: [2020-02-21 Fri 19:14]
+** DONE Implement move into
+   CLOSED: [2020-02-21 Fri 19:15]
+** DONE Implement move outof
+   CLOSED: [2020-02-21 Fri 19:15]
+
 ** TODO Support zipper to range
 * Inessential todos
 ** TODO - move zipper to point and kill
@@ -92,11 +100,7 @@
 ** TODO M-a, M-e - move sentences - module
 ** TODO M-k - kill sentence - kill module
 ** TODO C-M-l reposition to buffer - fix to work with ocaml
-
 * Longer term Todos
-** TODO Implement move into
-** TODO Implement move outof
-** TODO Fix whitespace
 ** TODO move to (??) type holes with C-n C-p if present in function DWIM
 *** Write function to check if current buffer contains any type holes
 *** Write function to return position of next type hole
