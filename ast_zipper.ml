@@ -236,10 +236,20 @@ end
 type unwrapped_type =
   | ModuleExpr
   | ModuleTyp
+  | LetBinding
+  | ValueBinding
+  | TypeDeclaration
+  | ModuleList
+
 
 type t =
   | Signature_item of Parsetree.signature_item
   | Structure_item of Parsetree.structure_item
+  | Value_binding of Parsetree.value_binding
+  | Type_declaration of Parsetree.type_declaration
+  | Attribute of Parsetree.attribute
+  | Pattern of Parsetree.pattern
+  | Expression of Parsetree.expression
   | Sequence of (TextRegion.t * unwrapped_type) option * t list * t * t list
   | EmptySequence of TextRegion.t * unwrapped_type
 
@@ -267,6 +277,26 @@ let rec t_to_bounds = function
     let (iter,get) = TextRegion.ast_bounds_iterator () in
     iter.structure_item iter si;
     get ()
+  | Attribute attr ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.attribute iter attr;
+    get ()
+  | Type_declaration tdcl ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.type_declaration iter tdcl;
+    get ()
+  | Value_binding vb ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.value_binding iter vb;
+    get ()
+  | Pattern pat ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.pat iter pat;
+    get ()
+  | Expression expr ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.expr iter expr;
+    get ()
   (* if its a sequence, take the union *)
   | Sequence (None, left,elem,right) ->
     List.map ~f:t_to_bounds (left @ right)
@@ -282,6 +312,11 @@ let t_shift_by_offset ~diff t =
     match t with
     | Signature_item si -> Signature_item (mapper.signature_item mapper si)
     | Structure_item si  -> Structure_item (mapper.structure_item mapper si)
+    | Attribute si  -> Attribute (mapper.attribute mapper si)
+    | Value_binding vb -> Value_binding (mapper.value_binding mapper vb)
+    | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
+    | Pattern pat -> Pattern (mapper.pat mapper pat)
+    | Expression expr -> Expression (mapper.expr mapper expr)
     | Sequence (bounds, left,elem,right) ->
       let left = List.map ~f:map left in
       let right = List.map ~f:map right in
@@ -297,8 +332,6 @@ let t_shift_by_offset ~diff t =
       let region = TextRegion.shift_region region diff in
       EmptySequence (region,ty) in
   map t
-
-
 
 let t_list_to_bounds ls =
   match ls with
@@ -320,6 +353,11 @@ let update_bounds ~diff state =
     match state with
     | Signature_item si -> Signature_item (mapper.signature_item mapper si)
     | Structure_item si -> Structure_item (mapper.structure_item mapper si)
+    | Value_binding vb -> Value_binding (mapper.value_binding mapper vb)
+    | Attribute si  -> Attribute (mapper.attribute mapper si)
+    | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
+    | Pattern pat -> Pattern (mapper.pat mapper pat)
+    | Expression expr -> Expression (mapper.expr mapper expr)
     | Sequence (None, l,c,r) ->
       let update_ls = List.map ~f:update in
       Sequence (None, update_ls l, update c, update_ls r)
@@ -333,7 +371,6 @@ let update_bounds ~diff state =
   in
 
   update state
-
 
 let rec unwrap_module_type ?range
     ({ pmty_desc;
@@ -358,7 +395,7 @@ let rec unwrap_module_type ?range
      * | Parsetree.Pmty_extension _ -> (??)
      * | Parsetree.Pmty_alias _ -> (??) *)
     | _ -> None
-  end 
+  end
 
 let rec unwrap_module_expr ?range
     ({ pmod_desc;
@@ -399,10 +436,16 @@ let rec unwrap_module_expr ?range
   (* | Parsetree.Pmod_extension _ -> (??) *)
   | _ -> None
 
-
-let t_descend t =
-  let range = t_to_bounds t in
+let rec t_descend ?range t =
+  let range = Option.value range ~default:(t_to_bounds t) in
   match t with
+  | Value_binding { pvb_pat; pvb_expr; _ } ->
+    let left = [] in
+    let right = [Expression pvb_expr] in
+    let current = Pattern pvb_pat in
+    let bounds = Some (range, ValueBinding) in 
+    Sequence (bounds, left, current, right)
+  
   | Signature_item ({ psig_desc; _ } as si) ->
     begin match psig_desc with
       (* | Parsetree.Psig_value _ -> (??) *) (* val x: T *)
@@ -413,9 +456,24 @@ let t_descend t =
       | Parsetree.Psig_module {
           (* pmd_name; *)
           pmd_type=pmd_type;
+          pmd_attributes=l::ls;
           (* pmd_attributes;
            * pmd_loc *) _ } ->
-        unwrap_module_type ~range pmd_type |> Option.value ~default:(Signature_item si)
+        unwrap_module_type  pmd_type
+        |> Option.map ~f:(fun t ->
+            let elems = List.map ~f:(fun a -> Attribute a) (l :: ls) in
+            let bounds = Some (range,ModuleTyp) in
+            Sequence (bounds, elems, t, [])
+          )
+        |> Option.value ~default:(Signature_item si)
+      | Parsetree.Psig_module {
+          (* pmd_name; *)
+          pmd_type=pmd_type;
+          pmd_attributes=[];
+          (* pmd_attributes;
+           * pmd_loc *) _ } ->
+        unwrap_module_type ~range  pmd_type
+        |> Option.value ~default:(Signature_item si)
       | _ -> Signature_item si
       (* | Parsetree.Psig_modsubst _ -> (??) *)
       (* | Parsetree.Psig_recmodule _ -> (??) *)
@@ -429,14 +487,52 @@ let t_descend t =
     end
   | Structure_item ({ pstr_desc; _ } as si) -> begin match pstr_desc with
       (* | Parsetree.Pstr_eval (_, _) -> (??) *) (* E *)
-      (* | Parsetree.Pstr_value (_, _) -> (??) *)  (* let P1 = E1 and ... and Pn = EN *)
+      | Parsetree.Pstr_value (_, v :: []) ->
+        t_descend ~range (Value_binding v)
+      (* let right = List.map ~f:(fun vb -> Value_binding vb) vb in
+         * let left = [] in
+         * let current = Value_binding v in
+         * let bounds = Some (range, LetBinding) in
+         * Sequence (bounds,left,current,right) *)
+
+      | Parsetree.Pstr_value (_, v :: vb) ->
+        let right = List.map ~f:(fun vb -> Value_binding vb) vb in
+        let left = [] in
+        let current = Value_binding v in
+        let bounds = Some (range, LetBinding) in
+        Sequence (bounds,left,current,right)
+        (* let P1 = E1 and ... and Pn = EN *)
       (* | Parsetree.Pstr_primitive _ -> (??) *)
-      (* | Parsetree.Pstr_type (_, _) -> (??) *)
+      | Parsetree.Pstr_type (_, v :: []) ->
+        t_descend ~range (Type_declaration v)
+      | Parsetree.Pstr_type (_, t :: ts) ->
+        let right = List.map ~f:(fun vb -> Type_declaration vb) ts in
+        let left = [] in
+        let current = Type_declaration t in
+        let bounds = Some (range, TypeDeclaration) in
+        Sequence (bounds,left,current,right)
+        
       (* | Parsetree.Pstr_typext _ -> (??) *)
       (* | Parsetree.Pstr_exception _ -> (??) *)
+      | Parsetree.Pstr_recmodule ({  pmb_expr; _  } :: []) 
       | Parsetree.Pstr_module { (* pmb_name; *) pmb_expr; _ (* pmb_attributes; pmb_loc *) } ->
         unwrap_module_expr ~range pmb_expr |> Option.value ~default:(Structure_item si)
-      (* | Parsetree.Pstr_recmodule _ -> (??) *)
+      | Parsetree.Pstr_recmodule ({ pmb_expr; _ } :: vs) ->
+        let (let+) x f = Option.bind ~f x in
+        begin
+          let+ current = unwrap_module_expr ~range pmb_expr in
+          let+ right = List.fold ~init:(Some []) vs
+              ~f:(fun acc { pmb_expr; _} ->
+                  let+ ls = acc in
+                  let+ l = unwrap_module_expr pmb_expr in
+                  Some (l :: ls)
+                ) in
+          let right = List.rev right in
+          let left = [] in
+          let bounds = Some (range, ModuleList) in
+          Some (Sequence (bounds, left, current, right))
+      end |> Option.value ~default:(Structure_item si)
+
       (* | Parsetree.Pstr_modtype _ -> (??) *)
       (* | Parsetree.Pstr_open _ -> (??) *)
       (* | Parsetree.Pstr_class _ -> (??) *)
@@ -447,7 +543,6 @@ let t_descend t =
       | _ -> Structure_item si
     end
   | v -> v
-
 
 let make_zipper_intf left intf right =
   let left = List.map ~f:(fun x -> Signature_item x) left in
@@ -460,7 +555,6 @@ let make_zipper_impl left impl right =
   let right = List.map ~f:(fun x -> Structure_item x) right in
   let impl = Structure_item impl in
   MkLocation (Sequence (None, List.rev left, impl, right), Top)
-
 
 let at_start current point =
   match current with
@@ -882,8 +976,6 @@ let update_zipper_space_bounds (MkLocation (current,parent))
     let bounds = update_meta_bound bounds in
       Some (MkLocation(current, Node{below;parent;above=right; bounds}))
 
-
-
 let move_up (MkLocation (current,parent) as loc)  =
   let (let+) x f = Option.bind ~f x in
   if not (is_top_level current) then None else 
@@ -973,7 +1065,6 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
           })))
   | _ -> None
 
-
 (** finds the item bounds for the nearest structure/signature (essentially defun) item  *)
 let find_nearest_definition_item_bounds point line forward zipper : _ option =
   Ecaml.message "calling find_nearest definition to zipper";
@@ -1023,5 +1114,4 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
     | _ ->  (go_up zipper) |> Option.bind ~f:loop
   in
   loop zipper
-
 
