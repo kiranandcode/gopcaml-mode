@@ -233,6 +233,7 @@ end = struct
 
 end
 
+
 type unwrapped_type =
   | ModuleExpr
   | ModuleTyp
@@ -375,6 +376,7 @@ let update_bounds ~diff state =
 let rec unwrap_module_type ?range
     ({ pmty_desc;
        pmty_loc=location;
+       pmty_attributes;
        _ (* pmty_loc; pmty_attributes *) }: Parsetree.module_type) : _ option =
   let meta_pos = match range with
       None -> Some (TextRegion.of_location location, ModuleTyp)
@@ -382,13 +384,15 @@ let rec unwrap_module_type ?range
   begin match pmty_desc with
     (* | Parsetree.Pmty_ident _ -> (??) *)
     | Parsetree.Pmty_signature (h :: t)  ->
-      Some (Sequence (meta_pos, [], Signature_item h, List.map ~f:(fun x -> Signature_item x) t))
+      let left = List.map ~f:(fun x -> Attribute x) pmty_attributes in 
+      Some (Sequence (meta_pos, left, Signature_item h, List.map ~f:(fun x -> Signature_item x) t))
     | Parsetree.Pmty_functor (_, o_mt, mt) ->
+      let left = List.map ~f:(fun x -> Attribute x) pmty_attributes in 
       begin match Option.bind ~f:unwrap_module_type o_mt with
         | Some v -> unwrap_module_type mt
-                    |> Option.map ~f:(fun m -> Sequence (meta_pos,[],v,[m]))
+                    |> Option.map ~f:(fun m -> Sequence (meta_pos,left,v,[m]))
         | None -> unwrap_module_type mt
-                  |> Option.map ~f:(fun m -> Sequence (meta_pos, [], m,[]))
+                  |> Option.map ~f:(fun m -> Sequence (meta_pos, left, m,[]))
       end
     (* | Parsetree.Pmty_with (_, _) -> (??)
      * | Parsetree.Pmty_typeof _ -> (??)
@@ -400,38 +404,43 @@ let rec unwrap_module_type ?range
 let rec unwrap_module_expr ?range
     ({ pmod_desc;
        pmod_loc=location;
+       pmod_attributes;
        _ (* pmod_loc; pmod_attributes *) }: Parsetree.module_expr)  =
   let meta_pos = match range with None -> Some (TextRegion.of_location location,ModuleExpr)
                                 | Some v -> Some (v,ModuleExpr) in
   match pmod_desc with
   (* | Parsetree.Pmod_ident _ -> (??) *) (* X *)
   | Parsetree.Pmod_structure (m :: mt) ->
-    Some (Sequence (meta_pos,[], Structure_item m, List.map ~f:(fun x -> Structure_item x) mt))
+    let left = List.map ~f:(fun x -> Attribute x) pmod_attributes in 
+    Some (Sequence (meta_pos,left, Structure_item m, List.map ~f:(fun x -> Structure_item x) mt))
   (* struct ... end *)
   | Parsetree.Pmod_functor (_, o_mt, me) ->
     let o_mt = Option.bind ~f:unwrap_module_type o_mt in
     let o_me = unwrap_module_expr me in
     let expr = [o_mt; o_me] |> List.map ~f:(Option.to_list) |> ListLabels.flatten in
+    let left = List.map ~f:(fun x -> Attribute x) pmod_attributes in 
     begin match expr with
-      | [h;r] -> Some (Sequence (meta_pos, [], h, [r]))
-      | [h] -> Some (Sequence (meta_pos, [], h, []))
+      | [h;r] -> Some (Sequence (meta_pos, left, h, [r]))
+      | [h] -> Some (Sequence (meta_pos, left, h, []))
       | _ -> None
     end
   | Parsetree.Pmod_apply (mexp1, mexp2) ->
+    let left = List.map ~f:(fun x -> Attribute x) pmod_attributes in 
     let expr = [mexp1;mexp2]
                |> List.map ~f:unwrap_module_expr
                |> List.map ~f:Option.to_list
                |> ListLabels.flatten in
     begin match expr with
-      | [h;r] -> Some (Sequence (meta_pos, [], h, [r]))
-      | [h] -> Some (Sequence (meta_pos, [], h, []))
+      | [h;r] -> Some (Sequence (meta_pos, left, h, [r]))
+      | [h] -> Some (Sequence (meta_pos, left, h, []))
       | _ -> None
     end
   | Parsetree.Pmod_constraint (mexp1, mtyp1) ->
+    let left = List.map ~f:(fun x -> Attribute x) pmod_attributes in 
     let (let+) x f = Option.bind ~f x in
     let+ mexp1 = unwrap_module_expr mexp1 in
     let+ mtyp1 = unwrap_module_type mtyp1 in
-    Some (Sequence (meta_pos, [], mexp1, [mtyp1]))
+    Some (Sequence (meta_pos, left, mexp1, [mtyp1]))
   (* | Parsetree.Pmod_unpack _ -> (??) *)
   (* | Parsetree.Pmod_extension _ -> (??) *)
   | _ -> None
@@ -514,9 +523,20 @@ let rec t_descend ?range t =
         
       (* | Parsetree.Pstr_typext _ -> (??) *)
       (* | Parsetree.Pstr_exception _ -> (??) *)
-      | Parsetree.Pstr_recmodule ({  pmb_expr; _  } :: []) 
-      | Parsetree.Pstr_module { (* pmb_name; *) pmb_expr; _ (* pmb_attributes; pmb_loc *) } ->
-        unwrap_module_expr ~range pmb_expr |> Option.value ~default:(Structure_item si)
+      | Parsetree.Pstr_recmodule ({  pmb_expr; pmb_attributes; _  } :: []) 
+      | Parsetree.Pstr_module { (* pmb_name; *) pmb_expr; pmb_attributes;
+                                              _ (* pmb_attributes; pmb_loc *) } ->
+        let expr_range = if List.length pmb_attributes > 0 then None else Some range in 
+        unwrap_module_expr ?range:expr_range pmb_expr
+        |> Option.map ~f:(fun t ->
+            let attrs = List.map ~f:(fun a -> Attribute a) pmb_attributes in
+            let bounds = Some (range, ModuleExpr) in 
+            if List.length attrs > 0 then Sequence (bounds, attrs, t, []) else t
+        )
+        |> Option.value ~default:(Structure_item si)
+
+
+
       | Parsetree.Pstr_recmodule ({ pmb_expr; _ } :: vs) ->
         let (let+) x f = Option.bind ~f x in
         begin
