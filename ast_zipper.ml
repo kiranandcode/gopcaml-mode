@@ -401,8 +401,6 @@ let rec unwrap_module_expr ?range
 
 
 let t_descend t =
-
-
   let range = t_to_bounds t in
   match t with
   | Signature_item ({ psig_desc; _ } as si) ->
@@ -872,8 +870,20 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       remove_current (MkLocation (current, up)) in
   remove_current loc |> Option.map ~f:(fun v -> v,current_bounds)
 
+(** determines whether the item is a toplevel thing that can be freely
+   moved around - (internal let in etc. are not supported within the
+   zipper.) *)
+let is_top_level  = function
+  | Structure_item _ 
+  | Signature_item _
+  | Sequence (Some (_, ModuleTyp), _, _ , _) 
+  | Sequence (Some (_, ModuleExpr), _, _ , _) ->
+    true
+  | _ -> false
+
 let move_up (MkLocation (current,parent) as loc)  =
   let (let+) x f = Option.bind ~f x in
+  if not (is_top_level current) then None else 
   match parent with
   | Top -> None
   | Node _ ->
@@ -884,9 +894,11 @@ let move_up (MkLocation (current,parent) as loc)  =
     Some (loc, insert_pos, TextRegion.to_bounds bounds)
 
 let move_down (MkLocation (current,_) as loc)  =
+  if not (is_top_level current) then None else 
   let (let+) x f = Option.bind ~f x in
   let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
-  let+ loc = go_down loc in
+  let+ (MkLocation (curr,_) as loc) = go_down loc in
+  if not (is_top_level curr) then None else 
   let+ (loc,insert_pos) = insert_element loc current in
   Some (loc, insert_pos, TextRegion.to_bounds bounds)
 

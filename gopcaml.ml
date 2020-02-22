@@ -18,7 +18,7 @@ module Variables = struct
       ~default_value:(None)
       ()
 
-  let zipper_var = Buffer_local.defvar
+let zipper_var = Buffer_local.defvar
       ("gopcaml-zipper" |> Symbol.intern)
       [%here]
       ~docstring:{|
@@ -405,10 +405,6 @@ let gopcaml_mode =
                    define_functions ()                
                 )
     ()
-
-
-
-
 
 (* Finally, provide the gopcaml symbol  *)
 let () =
