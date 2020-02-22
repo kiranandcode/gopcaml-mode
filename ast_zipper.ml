@@ -646,6 +646,7 @@ let rec move_zipper_broadly_to_point point line forward =
 module Synthesis = struct
 
   (* Returns a structure representing "let _ = (??)" *)
+
   let empty_let_structure =
     let pure_def = 
       let open Ast_helper in
@@ -725,8 +726,6 @@ module Synthesis = struct
       let bounds = update_meta_bound bounds in
       let parent = Node {below=current::below; parent; above; bounds} in
       Some (MkLocation (empty_let_structure,parent), (text,editing_pos))
-  
-
 
 end
 
@@ -779,7 +778,6 @@ let insert_element (MkLocation (current,parent)) (element: t)  =
     let bounds = update_meta_bound bounds in
     let parent = Node {below=current::below; parent; above; bounds} in
     Some (MkLocation (element,parent), editing_pos)
-
 
 let go_up (MkLocation (current,parent)) =
   match parent with
@@ -835,11 +833,6 @@ let update_zipper_space_bounds (MkLocation (current,parent))
     let bounds = update_meta_bound bounds in
       Some (MkLocation(current, Node{below;parent;above=right; bounds}))
 
-    
-
-
-
-
 (** deletes the current element of the zipper  *)
 let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
   let (let+) x f = Option.bind ~f x in
@@ -878,7 +871,7 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
     | Node {below=[]; parent=up; above=[]; _} ->
       remove_current (MkLocation (current, up)) in
   remove_current loc |> Option.map ~f:(fun v -> v,current_bounds)
-  
+
 let move_up (MkLocation (current,parent) as loc)  =
   let (let+) x f = Option.bind ~f x in
   match parent with
