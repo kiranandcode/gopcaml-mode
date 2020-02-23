@@ -251,7 +251,7 @@ type unwrapped_type =
   | TypeDecl
   | Eval
 [@@deriving show]
-    
+
 
 type t =
   | Signature_item of Parsetree.signature_item[@opaque]
@@ -614,7 +614,7 @@ let rec t_descend ?range t =
         let right = List.map ~f:(fun v -> Attribute v) attr in
         let bounds = Some (range, Eval) in
         Sequence (bounds, [], current, right)
-        (* E *)
+      (* E *)
       | Parsetree.Pstr_value (_, v :: []) ->
         t_descend ~range (Value_binding v)
       | Parsetree.Pstr_value (_, v :: vb) ->
@@ -807,6 +807,18 @@ let rec move_zipper_to_point point line forward =
       | v -> (MkLocation (v, parent))
     else v
 
+(** determines whether the item is a toplevel thing that can be freely
+    moved around - (internal let in etc. are not supported within the
+    zipper.) *)
+let is_top_level  = function
+  | Structure_item _ 
+  | Signature_item _
+  | Sequence (Some (_, ModuleTyp), _, _ , _) 
+  | Sequence (Some (_, ModuleExpr), _, _ , _) ->
+    true
+  | _ -> false
+
+
 (** moves the location to the nearest structure item enclosing or around it   *)
 let rec move_zipper_broadly_to_point point line forward =
   let distance region =
@@ -875,21 +887,27 @@ let rec move_zipper_broadly_to_point point line forward =
     end
   | (MkLocation (current,parent) as v) ->
     if  TextRegion.contains_point (t_to_bounds current) point
-    then match t_descend current with
-      | (Sequence _ as s) ->
-        let (MkLocation (current', _) as zipper) =
-          move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
-        let selected_distance =
-          distance (t_to_bounds current') in
-        let enclosing_distance =
-          distance (t_to_bounds current) in
-        if (snd3 enclosing_distance < snd3 selected_distance) ||
-           ((trd3 enclosing_distance = trd3 selected_distance) &&
-            (trd3 enclosing_distance < trd3 selected_distance)) ||
-           (fst3 selected_distance > line)
-        then v
-        else zipper
-      | v -> (MkLocation (v, parent))
+    then
+      begin
+        let descend = t_descend current in
+        if not (is_top_level descend) then v else
+        match descend with
+        | (Sequence _ as s) ->
+          let (MkLocation (current', _) as zipper) =
+            move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
+          let selected_distance =
+            distance (t_to_bounds current') in
+          let enclosing_distance =
+            distance (t_to_bounds current) in
+          if (snd3 enclosing_distance < snd3 selected_distance) ||
+             ((trd3 enclosing_distance = trd3 selected_distance) &&
+              (trd3 enclosing_distance < trd3 selected_distance)) ||
+             (fst3 selected_distance > line)
+          then v
+          else zipper
+        | v -> (MkLocation (v, parent))
+
+      end
     else v
 
 module Synthesis = struct
@@ -1095,16 +1113,6 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       remove_current (MkLocation (current, up)) in
   remove_current loc |> Option.map ~f:(fun v -> v,current_bounds)
 
-(** determines whether the item is a toplevel thing that can be freely
-    moved around - (internal let in etc. are not supported within the
-    zipper.) *)
-let is_top_level  = function
-  | Structure_item _ 
-  | Signature_item _
-  | Sequence (Some (_, ModuleTyp), _, _ , _) 
-  | Sequence (Some (_, ModuleExpr), _, _ , _) ->
-    true
-  | _ -> false
 
 let update_zipper_space_bounds (MkLocation (current,parent))
     (pre_column,pre_line) (post_column,post_line) =
@@ -1228,7 +1236,7 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
 (** finds the item bounds for the nearest structure/signature (essentially defun) item  *)
 let find_nearest_definition_item_bounds point line forward zipper : _ option =
   Ecaml.message "calling find_nearest definition to zipper";
-  let zipper = move_zipper_to_point point line forward zipper in
+  let zipper = move_zipper_broadly_to_point point line forward zipper in
   let rec loop zipper =
     let get_result pos_start pos_end =
       if (not forward && point = pos_start)
