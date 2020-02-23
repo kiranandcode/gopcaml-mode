@@ -840,6 +840,11 @@ let retrieve_enclosing_bounds ?current_buffer ~state_var point =
   |> Option.bind ~f:(find_enclosing_bounds ~point)
 
 
+let print_zipper =
+  Option.map ~f:(fun zipper ->
+      Ast_zipper.describe_current_item zipper;
+      zipper)
+
 (** retrieve a zipper expression at the current position *)
 let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point line  =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -849,6 +854,7 @@ let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point li
                    |> Option.map ~f:(Ast_zipper.move_zipper_to_point (Position.to_int point) line false) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
+  |> print_zipper
   |> Option.map ~f:Ast_zipper.to_bounds
   |> Option.map ~f:(fun (st,ed) ->
       Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
@@ -863,6 +869,7 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
                    |> Option.map ~f:(Ast_zipper.move_zipper_broadly_to_point (Position.to_int point) line false) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
+  |> print_zipper
   |> Option.map ~f:Ast_zipper.to_bounds
   |> Option.map ~f:(fun (st,ed) ->
       Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
@@ -872,7 +879,7 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
 let find_nearest_defun ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
-  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0))
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0) )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
                         (Position.to_int point - 1)
                         (line + 1)
@@ -899,6 +906,7 @@ let inside_defun ?current_buffer ~state_var point =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state_immediate ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> inside_let_def state point)
+
 
 (** retrieve zipper *)
 let retrieve_zipper ?current_buffer ~zipper_var =
@@ -937,6 +945,7 @@ let move_zipper_left ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper left *)
@@ -953,6 +962,7 @@ let ensure_zipper_space ?current_buffer ~zipper_var (pre_column,pre_line) (post_
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper right *)
@@ -964,6 +974,7 @@ let move_zipper_right ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper down *)
@@ -975,6 +986,7 @@ let move_zipper_down ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper up *)
@@ -986,6 +998,7 @@ let move_zipper_up ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds  
 
 (** attempts "update" the buffer using the zipper, returning the two regions to be swapped *)
