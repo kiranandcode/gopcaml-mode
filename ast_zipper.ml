@@ -510,9 +510,52 @@ let rec unwrap_module_expr ?range
   (* | Parsetree.Pmod_extension _ -> (??) *)
   | _ -> None
 
+let unwrap_expr ({ pexp_desc; pexp_attributes; _ } as expr: Parsetree.expression) =
+  match pexp_desc with
+  (* | Parsetree.Pexp_ident _ -> (??) *)
+  (* | Parsetree.Pexp_constant _ -> (??) *)
+  | Parsetree.Pexp_let (_, _, _) -> (??)
+  | Parsetree.Pexp_function ((_ :: _) as ls) -> (??)
+  | Parsetree.Pexp_fun (_, _, _, _) -> (??)
+  | Parsetree.Pexp_apply (_, _) -> (??)
+  | Parsetree.Pexp_match (_, _) -> (??)
+  | Parsetree.Pexp_try (_, _) -> (??)
+  | Parsetree.Pexp_tuple _ -> (??)
+  | Parsetree.Pexp_construct (_, _) -> (??)
+  | Parsetree.Pexp_variant (_, _) -> (??)
+  | Parsetree.Pexp_record (_, _) -> (??)
+  | Parsetree.Pexp_field (_, _) -> (??)
+  | Parsetree.Pexp_setfield (_, _, _) -> (??)
+  | Parsetree.Pexp_array _ -> (??)
+  | Parsetree.Pexp_ifthenelse (_, _, _) -> (??)
+  | Parsetree.Pexp_sequence (_, _) -> (??)
+  | Parsetree.Pexp_while (_, _) -> (??)
+  | Parsetree.Pexp_for (_, _, _, _, _) -> (??)
+  | Parsetree.Pexp_constraint (_, _) -> (??)
+  | Parsetree.Pexp_coerce (_, _, _) -> (??)
+  | Parsetree.Pexp_send (_, _) -> (??)
+  | Parsetree.Pexp_new _ -> (??)
+  | Parsetree.Pexp_setinstvar (_, _) -> (??)
+  | Parsetree.Pexp_override _ -> (??)
+  | Parsetree.Pexp_letmodule (_, _, _) -> (??)
+  | Parsetree.Pexp_letexception (_, _) -> (??)
+  | Parsetree.Pexp_assert _ -> (??)
+  | Parsetree.Pexp_lazy _ -> (??)
+  | Parsetree.Pexp_poly (_, _) -> (??)
+  | Parsetree.Pexp_object _ -> (??)
+  | Parsetree.Pexp_newtype (_, _) -> (??)
+  | Parsetree.Pexp_pack _ -> (??)
+  | Parsetree.Pexp_open (_, _) -> (??)
+  | Parsetree.Pexp_letop _ -> (??)
+  | Parsetree.Pexp_extension _ -> (??)
+  | Parsetree.Pexp_unreachable -> (??)
+  | _ -> Expression expr
+  
+
 let rec t_descend ?range t =
   let range = Option.value range ~default:(t_to_bounds t) in
   match t with
+  | Expression expr -> unwrap_expr ~range expr
   | Value_binding { pvb_pat; pvb_expr; _ } ->
     let left = [] in
     let right = [Expression pvb_expr] in
