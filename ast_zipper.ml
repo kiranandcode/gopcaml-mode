@@ -257,8 +257,20 @@ type unwrapped_type =
   | Tuple
   | Constructor
   | Variant
+  | Record
+  | RecordField
+  | Field
+  | Array
+  | IfThenElse
+  | Seq
+  | While
+  | For
+  | Constraint
+  | Coerce
+  | Send
+  | New
+  | AssignField
 [@@deriving show]
-
 
 type t =
   | Signature_item of Parsetree.signature_item[@opaque]
@@ -269,6 +281,7 @@ type t =
   | CoreType of Parsetree.core_type[@opaque]
   | Pattern of Parsetree.pattern[@opaque]
   | Expression of Parsetree.expression[@opaque]
+  | Text of TextRegion.t
   | Sequence of ((TextRegion.t * unwrapped_type) option * t list * t * t list)[@opaque]
   | EmptySequence of TextRegion.t * unwrapped_type[@opaque]
 
@@ -280,6 +293,7 @@ let rec to_string = function
   | Attribute  _ -> "Attribute of"
   | CoreType  _ -> "CoreType of"
   | Pattern  _ -> "Pattern of"
+  | Text _ -> "Text"
   | Expression _ -> "Expression of"
   | Sequence  (bound, left, current, right) ->
     let bound = match bound with
@@ -306,6 +320,7 @@ type location =
   | MkLocation of t * zipper
 
 let rec t_to_bounds = function
+  | Text s -> s
   | Signature_item si ->
     let (iter,get) = TextRegion.ast_bounds_iterator () in
     iter.signature_item iter si;
@@ -359,6 +374,7 @@ let t_shift_by_offset ~diff t =
     | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
     | Pattern pat -> Pattern (mapper.pat mapper pat)
     | Expression expr -> Expression (mapper.expr mapper expr)
+    | Text s -> Text (TextRegion.shift_region s diff)
     | Sequence (bounds, left,elem,right) ->
       let left = List.map ~f:map left in
       let right = List.map ~f:map right in
@@ -401,6 +417,7 @@ let update_bounds ~diff state =
     | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
     | Pattern pat -> Pattern (mapper.pat mapper pat)
     | Expression expr -> Expression (mapper.expr mapper expr)
+    | Text s -> Text (TextRegion.shift_region s diff)
     | Sequence (None, l,c,r) ->
       let update_ls = List.map ~f:update in
       Sequence (None, update_ls l, update c, update_ls r)
@@ -414,6 +431,8 @@ let update_bounds ~diff state =
   in
   update state
 
+let unwrap_loc ({ loc; _ }: 'a Asttypes.loc) =
+  Text (TextRegion.of_location loc)
 let rec unwrap_type_declaration ({
     (* ptype_name; *)
     ptype_params;
@@ -620,19 +639,89 @@ and unwrap_expr ?range ({ pexp_desc; pexp_attributes; _ } as expr: Parsetree.exp
     let expr = Expression expr in
     let bounds = Some (range, Variant) in 
     Sequence (bounds, [], expr, [])
-  (* | Parsetree.Pexp_record (_, _) -> (??) *)
-  (* | Parsetree.Pexp_field (_, _) -> (??) *)
-  (* | Parsetree.Pexp_setfield (_, _, _) -> (??) *)
-  (* | Parsetree.Pexp_array _ -> (??) *)
-  (* | Parsetree.Pexp_ifthenelse (_, _, _) -> (??) *)
-  (* | Parsetree.Pexp_sequence (_, _) -> (??) *)
-  (* | Parsetree.Pexp_while (_, _) -> (??) *)
-  (* | Parsetree.Pexp_for (_, _, _, _, _) -> (??) *)
-  (* | Parsetree.Pexp_constraint (_, _) -> (??) *)
-  (* | Parsetree.Pexp_coerce (_, _, _) -> (??) *)
-  (* | Parsetree.Pexp_send (_, _) -> (??) *)
-  (* | Parsetree.Pexp_new _ -> (??) *)
-  (* | Parsetree.Pexp_setinstvar (_, _) -> (??) *)
+  | Parsetree.Pexp_record (exp_list, exp) ->
+    let exps = List.map ~f:(fun (vl, exp) ->
+        let vl = unwrap_loc vl in
+        let exp = Expression exp in 
+        let range = 
+          let sequence = Sequence (None, [], vl, [exp]) in 
+          t_to_bounds sequence in
+        let bounds = Some (range, RecordField) in
+        Sequence (bounds, [], vl, [exp])
+      ) exp_list in
+    let exp = Option.map ~f:(fun v -> Expression v) exp |> Option.to_list in
+    let items = exps @ exp in
+    let bounds = Some (range, Record) in     
+    begin
+      match items with
+      | h :: [] -> h
+      | h :: t -> Sequence (bounds, [], h, t)
+      | [] -> Expression expr
+    end
+  | Parsetree.Pexp_field (expr, loc) ->
+    let expr = Expression expr in
+    let loc = unwrap_loc loc in
+    let bounds = Some (range, Field) in
+    Sequence (bounds, [], expr, [loc])
+  | Parsetree.Pexp_setfield (e1, loc, e2) ->
+    let e1 = Expression e1 in
+    let loc = unwrap_loc loc in
+    let e2 = Expression e2 in
+    let bounds = Some (range, Field) in
+    Sequence (bounds, [], e1, [loc; e2])
+  | Parsetree.Pexp_array (h :: t) ->
+    let expr = Expression h in
+    let t = List.map ~f:(fun v -> Expression v) t in
+    let bounds = Some (range, Array) in
+    Sequence (bounds, [], expr, t)
+  | Parsetree.Pexp_ifthenelse (e1, e2, oe3) ->
+    let e1 = Expression e1 in
+    let e2 = Expression e2 in
+    let e3 = Option.map oe3 ~f:(fun e -> Expression e) |> Option.to_list in
+    let bounds = Some (range, IfThenElse) in
+    Sequence (bounds, [], e1, e2::e3)
+  | Parsetree.Pexp_sequence (e1, e2) ->
+    let e1 = Expression e1 in
+    let e2 = Expression e2 in
+    let bounds = Some (range, Seq) in
+    Sequence (bounds, [], e1, [e2])
+  | Parsetree.Pexp_while (e1, e2) ->
+    let e1 = Expression e1 in
+    let e2 = Expression e2 in
+    let bounds = Some (range, While) in
+    Sequence (bounds, [], e1, [e2])
+  | Parsetree.Pexp_for (pat, e1, e2, _, e3) ->
+    let pat = Pattern pat in
+    let e1 = Expression e1 in
+    let e2 = Expression e2 in
+    let e3 = Expression e3 in
+    let bounds = Some (range, For) in
+    Sequence (bounds, [], pat, [e1;e2;e3])
+  | Parsetree.Pexp_constraint (exp, coretype) ->
+    let expr = Expression exp in
+    let coretype = CoreType coretype in
+    let bounds = Some (range, Constraint) in
+    Sequence (bounds, [], expr, [coretype])
+  | Parsetree.Pexp_coerce (e1, c1, c2) ->
+    let e1 = Expression e1 in
+    let c1 = Option.map ~f:(fun v -> CoreType v) c1 |> Option.to_list in
+    let c2 =  [CoreType c2] in
+    let bounds = Some (range, Coerce) in
+    Sequence (bounds, [], e1, c1 @ c2)
+  | Parsetree.Pexp_send (e1, loc) ->
+    let e1 = Expression e1 in
+    let loc = unwrap_loc loc in
+    let bounds = Some (range, Send) in
+    Sequence (bounds, [], e1, [loc])
+  | Parsetree.Pexp_new location ->
+    let location = unwrap_loc location in
+    let bounds = Some (range, New) in
+    Sequence (bounds, [], location, [])
+  | Parsetree.Pexp_setinstvar (loc, e1) ->
+    let loc = unwrap_loc loc in
+    let e1 = Expression e1 in
+    let bounds = Some (range, AssignField) in
+    Sequence (bounds, [], loc, [e1])
   (* | Parsetree.Pexp_override _ -> (??) *)
   (* | Parsetree.Pexp_letmodule (_, _, _) -> (??) *)
   (* | Parsetree.Pexp_letexception (_, _) -> (??) *)
