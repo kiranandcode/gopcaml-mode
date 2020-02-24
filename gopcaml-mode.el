@@ -492,6 +492,11 @@ removes all existing overlays of type GROUP if present."
       (message "copied \"%s\" to kill-ring" (truncate-string-to-width
 					     text 40 nil nil t)))))
 
+(defun gopcaml-mode-insert-type-hole ()
+  "Insert a type hole at the cursor."
+  (interactive)
+  (insert "(??)"))
+
 (defun gopcaml-zipper-swap (transform-fn)
   "Swap current text using output from zipper function TRANSFORM-FN."
   (let ((area (car (funcall transform-fn)))
@@ -720,6 +725,7 @@ END is the end of the edited text region."
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
   (define-key gopcaml-mode-map (kbd "TAB") #'gopcaml-move-to-hole)
   (define-key gopcaml-mode-map (kbd "<backtab>") #'gopcaml-move-backward-to-hole)
+  (define-key gopcaml-mode-map (kbd "M-RET") #'gopcaml-mode-insert-type-hole)
   (define-key gopcaml-mode-map (kbd "C-M-u") '(menu-item "" gopcaml-backward-up-list
 						    :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-d") '(menu-item "" gopcaml-down-list

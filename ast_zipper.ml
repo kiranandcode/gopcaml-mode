@@ -272,6 +272,13 @@ type unwrapped_type =
   | AssignField
   | Override
   | LetModule
+  | LetException
+  | LabelDeclaration
+  | Assert
+  | Lazy
+  | Poly
+  | NewType
+  | PackModule
 [@@deriving show]
 
 type t =
@@ -746,16 +753,89 @@ and unwrap_expr ?range ({ pexp_desc; pexp_attributes; _ } as expr: Parsetree.exp
     let expr = [Expression expr] in
     let bounds = Some (range, LetModule) in 
     Sequence (bounds, [], loc, mexpr @ expr)
+  | Parsetree.Pexp_letexception ({ pext_kind; pext_loc; _  }, expr) ->
+    let expn = match pext_kind with
+      | Parsetree.Pext_decl (args, otype) ->
+        let args = match args with
+          | Parsetree.Pcstr_tuple ctys ->
+            let otype = Option.map ~f:(fun v -> CoreType v) otype
+                        |> Option.to_list in 
+            let ctys = List.map ~f:(fun ct -> CoreType ct) ctys in
+            begin
+              match ctys @ otype with
+              | [] -> None
+              | h :: t ->
+                let range =
+                  let sequence = Sequence (None,[],h,t) in
+                  t_to_bounds sequence
+                in
+                Some (Sequence (Some (range, Constructor), [],h,t))
+            end
+          | Parsetree.Pcstr_record labels ->
+            let decls = List.map labels ~f:(fun { pld_type; pld_loc; _ } ->
+                let cyt = CoreType pld_type in
+                let range =
+                  TextRegion.of_location pld_loc
+                in
+                let bounds = Some (range, LabelDeclaration) in
+                (Sequence (bounds, [], cyt, []))
+              ) in
+            match decls with
+            | h :: t ->
+              let range =
+                let sequence = Sequence (None, [], h, t) in
+                t_to_bounds sequence
+              in
+              let bounds = Some (range, Record) in
+              Some (Sequence (bounds, [], h, t))
+            | [] -> None 
+        in
+        let args = args |> Option.to_list in
+        let otype = Option.map ~f:(fun v -> CoreType v) otype
+                    |> Option.to_list in
+        args @ otype 
+      | Parsetree.Pext_rebind loc -> [unwrap_loc loc] in
+    let range = TextRegion.of_location pext_loc in
+    let bounds = Some (range, LetException) in
+    begin
+      match expn with
+      | h :: t -> Sequence (bounds, [], h, t)
+      | [] -> Expression expr
+    end
+  | Parsetree.Pexp_assert expression ->
+    Sequence (Some (range, Assert), [], Expression expression, [])
+  | Parsetree.Pexp_lazy expr -> 
+    Sequence (Some (range, Lazy), [], Expression expr, [])
+  | Parsetree.Pexp_poly (expr, cty) ->
+    let expr = Expression expr in
+    let cty = Option.map ~f:(fun ct -> CoreType ct) cty
+              |> Option.to_list in
+    let bounds = Some (range, Poly) in
+    Sequence (bounds, [], expr, cty)
+  | Parsetree.Pexp_newtype (loc, expr) ->
+    let loc = unwrap_loc loc in
+    let expr = Expression expr in
+    let bounds = Some (range, NewType) in
+    Sequence (bounds, [], loc, [expr])
+  | Parsetree.Pexp_pack mexpr ->
+    let mexpr = unwrap_module_expr mexpr in
+    begin
+      match mexpr with
+      | None -> Expression expr
+      | Some mexpr ->
+        Sequence (Some (range, PackModule), [], mexpr, [])
+    end
+  | Parsetree.Pexp_open ({ popen_expr; _ }, expr) ->
+    let mod_expr = unwrap_module_expr popen_expr in
+    let expr = Expression expr in
+    begin
+      match mod_expr with
+      | Some mod_expr -> Sequence (Some (range, ModuleOpen), [], mod_expr, [expr])
+      | None -> Sequence (Some (range, ModuleOpen), [], expr, [])
+    end
   | _ -> Expression expr
-(* | Parsetree.Pexp_letexception (_, _) -> (??) *)
-(* | Parsetree.Pexp_assert _ -> (??) *)
-(* | Parsetree.Pexp_lazy _ -> (??) *)
-(* | Parsetree.Pexp_poly (_, _) -> (??) *)
+(* | Parsetree.Pexp_letop { let_; ands; body } -> (??) *)
 (* | Parsetree.Pexp_object _ -> (??) *)
-(* | Parsetree.Pexp_newtype (_, _) -> (??) *)
-(* | Parsetree.Pexp_pack _ -> (??) *)
-(* | Parsetree.Pexp_open (_, _) -> (??) *)
-(* | Parsetree.Pexp_letop _ -> (??) *)
 (* | Parsetree.Pexp_extension _ -> (??) *)
 (* | Parsetree.Pexp_unreachable -> (??) *)
 
