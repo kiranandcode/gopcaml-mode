@@ -270,6 +270,8 @@ type unwrapped_type =
   | Send
   | New
   | AssignField
+  | Override
+  | LetModule
 [@@deriving show]
 
 type t =
@@ -722,20 +724,41 @@ and unwrap_expr ?range ({ pexp_desc; pexp_attributes; _ } as expr: Parsetree.exp
     let e1 = Expression e1 in
     let bounds = Some (range, AssignField) in
     Sequence (bounds, [], loc, [e1])
-  (* | Parsetree.Pexp_override _ -> (??) *)
-  (* | Parsetree.Pexp_letmodule (_, _, _) -> (??) *)
-  (* | Parsetree.Pexp_letexception (_, _) -> (??) *)
-  (* | Parsetree.Pexp_assert _ -> (??) *)
-  (* | Parsetree.Pexp_lazy _ -> (??) *)
-  (* | Parsetree.Pexp_poly (_, _) -> (??) *)
-  (* | Parsetree.Pexp_object _ -> (??) *)
-  (* | Parsetree.Pexp_newtype (_, _) -> (??) *)
-  (* | Parsetree.Pexp_pack _ -> (??) *)
-  (* | Parsetree.Pexp_open (_, _) -> (??) *)
-  (* | Parsetree.Pexp_letop _ -> (??) *)
-  (* | Parsetree.Pexp_extension _ -> (??) *)
-  (* | Parsetree.Pexp_unreachable -> (??) *)
+  | Parsetree.Pexp_override ls ->
+    let items = List.map ~f:(fun (loc,expr) ->
+        let loc = unwrap_loc loc in
+        let expr  = Expression expr in
+        let range =
+          let sequence = Sequence (None, [], loc, [expr]) in
+          t_to_bounds sequence in
+        let bounds = Some (range, Field) in
+        Sequence (bounds, [], loc, [expr])
+      ) ls in
+    let bounds = Some (range, Override) in
+    begin
+      match items with
+      | h :: t -> Sequence (bounds, [], h, t)
+      | [] -> Expression expr
+    end
+  | Parsetree.Pexp_letmodule (loc, mexpr, expr) ->
+    let loc = unwrap_loc loc in 
+    let mexpr =  unwrap_module_expr mexpr |> Option.to_list in
+    let expr = [Expression expr] in
+    let bounds = Some (range, LetModule) in 
+    Sequence (bounds, [], loc, mexpr @ expr)
   | _ -> Expression expr
+(* | Parsetree.Pexp_letexception (_, _) -> (??) *)
+(* | Parsetree.Pexp_assert _ -> (??) *)
+(* | Parsetree.Pexp_lazy _ -> (??) *)
+(* | Parsetree.Pexp_poly (_, _) -> (??) *)
+(* | Parsetree.Pexp_object _ -> (??) *)
+(* | Parsetree.Pexp_newtype (_, _) -> (??) *)
+(* | Parsetree.Pexp_pack _ -> (??) *)
+(* | Parsetree.Pexp_open (_, _) -> (??) *)
+(* | Parsetree.Pexp_letop _ -> (??) *)
+(* | Parsetree.Pexp_extension _ -> (??) *)
+(* | Parsetree.Pexp_unreachable -> (??) *)
+
 and t_descend ?range t =
   let range = Option.value range ~default:(t_to_bounds t) in
   match t with

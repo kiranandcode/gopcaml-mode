@@ -704,6 +704,15 @@ END is the end of the edited text region."
     ))
 
 
+(defun gopcaml-type-hole-needed ()
+  "Check whether the current expression expansion needs a type hole."
+  (save-excursion
+    (skip-chars-forward " \t\n")
+    (looking-at-p "\\(|\\|end\\|module\\|val\\|type\\)")
+    )
+)
+
+
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
