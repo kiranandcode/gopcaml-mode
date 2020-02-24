@@ -510,11 +510,23 @@ let rec unwrap_module_expr ?range
   (* | Parsetree.Pmod_extension _ -> (??) *)
   | _ -> None
 
-let unwrap_expr ({ pexp_desc; pexp_attributes; _ } as expr: Parsetree.expression) =
+let unwrap_expr ?range ({ pexp_desc; pexp_attributes; _ } as expr: Parsetree.expression) =
+  let range = match range with
+    | Some r -> r
+    | None  -> t_to_bounds (Expression expr) in
+  let attrs =
+    let values = List.map ~f:(fun a -> Attribute a) pexp_attributes in
+    match values with
+    | h :: t -> Some (h, t)
+    | [] -> None in
   match pexp_desc with
+
   (* | Parsetree.Pexp_ident _ -> (??) *)
   (* | Parsetree.Pexp_constant _ -> (??) *)
-  | Parsetree.Pexp_let (_, _, _) -> (??)
+  | Parsetree.Pexp_let (_, vbs, expr) ->
+    let vbs = List.map ~f:(fun v -> Value_binding vb) vbs in
+    let expr = Expression expr in
+    x
   | Parsetree.Pexp_function ((_ :: _) as ls) -> (??)
   | Parsetree.Pexp_fun (_, _, _, _) -> (??)
   | Parsetree.Pexp_apply (_, _) -> (??)

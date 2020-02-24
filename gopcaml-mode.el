@@ -39,9 +39,6 @@
 (defvar-local  gopcaml-expand-timer nil
   "Timer object used to periodically expand the element under point")
 
-(when (require 'smartparens nil 'noerror)
-  (sp-local-pair 'gopcaml-mode "begin" "end"))
-
 (defun gopcaml-remove-stored-overlays (&optional group)
   "Remove stored overlays - optionally only those of gopcaml-kind GROUP."
   (setq gopcaml-temporary-highlight-overlays
@@ -205,6 +202,25 @@ removes all existing overlays of type GROUP if present."
     (if area
 	(progn (goto-char  area))
       nil)))
+
+(defun gopcaml-move-to-hole ()
+  "Move to (??) from the current point."
+  (interactive)
+  (let ((end (car (gopcaml-find-defun-end (point) (line-number-at-pos)))) (curr (point)))
+    (when (and end (search-forward "(??)" end t))
+      (if (equal (point) (+ curr 4)) (gopcaml-move-to-hole) (backward-char 4))
+      )
+    ))
+
+(defun gopcaml-move-backward-to-hole ()
+  "Move to (??) backward from the current point."
+  (interactive)
+  (let ((start (car (gopcaml-find-defun-start (point) (line-number-at-pos)))) (curr (point)))
+    (when (and start (search-backward "(??)" start t))
+      (if (equal (point) curr) (gopcaml-move-to-hole))
+      )
+    ))
+
 
 (defun gopcaml-forward-list-full (selection-mode)
   "Move the zipper forwards (broadly from current point) in SELECTION-MODE."
@@ -679,7 +695,7 @@ ARGS are parameters to pass to the function."
 BEGINNING is the start of the edited text region.
 END is the end of the edited text region."
   (let ( (point (point)) element)
-    (when (and (< (+ point 4) (point-max)))
+    (when (and (equal beginning end) (< (+ point 4) (point-max)))
       (setq element (buffer-substring-no-properties  point (+ point 4)))
       (if (equal "(??)" element)
 	  (delete-region point (+ point 4))
@@ -693,6 +709,8 @@ END is the end of the edited text region."
   (message "setting up gopcaml-bindings")
   (setq-local end-of-defun-function #'gopcaml-end-defun)
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
+  (define-key gopcaml-mode-map (kbd "TAB") #'gopcaml-move-to-hole)
+  (define-key gopcaml-mode-map (kbd "<backtab>") #'gopcaml-move-backward-to-hole)
   (define-key gopcaml-mode-map (kbd "C-M-u") '(menu-item "" gopcaml-backward-up-list
 						    :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-d") '(menu-item "" gopcaml-down-list
@@ -733,6 +751,8 @@ END is the end of the edited text region."
   (interactive)
   (setq after-change-functions
 	(remove #'gopcaml-update-dirty-region after-change-functions))
+  (setq before-change-functions
+	(remove #'gopcaml-before-change-remove-type-hole before-change-functions))
   (if gopcaml-update-timer
       (progn "cancelling gopcaml-update-timer" (cancel-timer gopcaml-update-timer)))
   (setq gopcaml-update-timer nil)
