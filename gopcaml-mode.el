@@ -147,13 +147,15 @@ removes all existing overlays of type GROUP if present."
 
 
 
-(defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor selection-mode)
+(defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor selection-mode direction)
   "Start gopcaml-zipper mode using ZIPPER-CONSTRUCTOR and perform OPERATION."
   (interactive)
   (if (not zipper-constructor) (setq zipper-constructor #'gopcaml-build-zipper))
 
   (let ((selection-active (or (region-active-p) selection-mode)))
     (if (and selection-active (not (region-active-p)))
+	;; if selection active and not region active
+	;; i.e we're holding shift, but haven't selecting anything
 	(progn
 	  (push-mark (point))
 	  (activate-mark))
@@ -162,31 +164,46 @@ removes all existing overlays of type GROUP if present."
     ;;  if not already in zipper mode
     (if (not gopcaml-zipper)
 	;; build zipper aronud point
-      (let ((area (car (funcall zipper-constructor (point) (line-number-at-pos)))) start end overlay)
-	;; if successfull then perform operation
-	(if area
-	    (progn
-	      (setq start (car area))
-	      (setq end (cadr area))
-	      (setq overlay (make-overlay start end))
-	      (if (not selection-active)
-		  ;; (overlay-put overlay 'face 'gopcaml-selection-face)
-		  (overlay-put overlay 'face 'gopcaml-zipper-face)
-		  )
-	      (overlay-put overlay 'gopcaml-kind 'zipper)
-	      (setq gopcaml-zipper-overlay overlay)
-	      (set-transient-map
-	       (if (not selection-active)
-		   gopcaml-zipper-mode-map
-		 gopcaml-selection-zipper-mode-map)
-	       t #'gopcaml-on-exit-zipper-mode)
-	      (funcall operation t))
-	  (gopcaml-delete-zipper)
-	  nil
-	  ))
-    ;; otherwise just perfom operation
-     (funcall operation nil)
-  )))
+	(progn
+	  (cond
+	   ((equal direction 'forward)
+	    (skip-chars-forward " \n\t")
+	    )
+	   ((equal direction 'backward)
+	    (skip-chars-backward " \n\t"))
+	   )
+	  (let ((area
+		 (car (funcall zipper-constructor
+			       (point)
+			       (line-number-at-pos))))
+		start end overlay)
+	    ;; if successfull then perform operation
+	    (if area
+		(progn
+		  (setq start (car area))
+		  (setq end (cadr area))
+		  (setq overlay (make-overlay start end))
+		  (if (not selection-active)
+		      ;; (overlay-put overlay 'face 'gopcaml-selection-face)
+		      (overlay-put overlay 'face 'gopcaml-zipper-face)
+		    )
+		  (overlay-put overlay 'gopcaml-kind 'zipper)
+		  (setq gopcaml-zipper-overlay overlay)
+		  (set-transient-map
+		   (if (not selection-active)
+		       gopcaml-zipper-mode-map
+		     gopcaml-selection-zipper-mode-map)
+		   t #'gopcaml-on-exit-zipper-mode)
+		  (if  selection-mode
+		      (funcall operation t)
+		    (goto-char start)
+		    ))
+	      (gopcaml-delete-zipper)
+	      nil
+	      )))
+      ;; otherwise just perfom operation
+      (funcall operation nil)
+      )))
 
 (defun gopcaml-beginning-defun ()
   "Move backwards to the beginning of the defun."
@@ -226,12 +243,31 @@ removes all existing overlays of type GROUP if present."
 (defun gopcaml-forward-list-full (selection-mode)
   "Move the zipper forwards (broadly from current point) in SELECTION-MODE."
   (interactive)
-  (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
-					    #'gopcaml-move-zipper-right
-					    'forward
-					    initial))
+  (gopcaml-zipper-mode-and-move (lambda (initial)
+				  (if (not initial)
+				      (progn
+					(move-gopcaml-zipper
+					 #'gopcaml-move-zipper-up
+					 'forward
+					 initial)
+					(move-gopcaml-zipper
+					 #'gopcaml-move-zipper-right
+					 'forward
+					 initial)
+					(move-gopcaml-zipper
+					 #'gopcaml-move-zipper-down
+					 'forward
+					 initial)
+					)
+				    (move-gopcaml-zipper
+				     #'gopcaml-move-zipper-right
+				     'forward
+				     initial)
+				      )
+				  )
 				#'gopcaml-broadly-build-zipper
-				selection-mode))
+				selection-mode
+				'forward))
 
 (defun gopcaml-forward-list ()
   "Move the zipper forwards (broadly from current point)."
@@ -245,11 +281,12 @@ removes all existing overlays of type GROUP if present."
   "Move the zipper backwards (broadly from current point) in SELECTION-MODE."
   (interactive)
   (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
-					    #'gopcaml-move-zipper-left
-					    'backward
-					    initial))
+						   #'gopcaml-move-zipper-left
+						   'backward
+						   initial))
 				#'gopcaml-broadly-build-zipper
-				selection-mode))
+				selection-mode
+				'backward))
 
 (defun gopcaml-backward-list ()
   "Move the zipper backwards (broadly from current point)."
@@ -267,7 +304,8 @@ removes all existing overlays of type GROUP if present."
 						   nil
 						   initial))
 				nil
-				selection-mode))
+				selection-mode
+				'backward))
 (defun gopcaml-backward-up-list ()
   "Move the zipper up (from expression at point)."
   (interactive) (gopcaml-backward-up-list-full nil))
@@ -284,7 +322,8 @@ removes all existing overlays of type GROUP if present."
 						   nil
 						   initial))
 				nil
-				selection-mode))
+				selection-mode
+				'forward))
 (defun gopcaml-down-list ()
   "Move the zipper dow (from expression at point)."
   (interactive) (gopcaml-down-list-full nil))
@@ -298,15 +337,19 @@ removes all existing overlays of type GROUP if present."
   (interactive "^p")
   (if (equal arg (- 1))
       (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
-						#'gopcaml-move-zipper-left
-						'backward
-						initial)))
+						       #'gopcaml-move-zipper-left
+						       'backward
+						       initial))
+				    nil
+				    selection-mode
+				    'backward)
     (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
-					      #'gopcaml-move-zipper-right
-					      'forward
-					      initial))
+						     #'gopcaml-move-zipper-right
+						     'forward
+						     initial))
 				  nil
-				  selection-mode)))
+				  selection-mode
+				  'forward)))
 
 (defun gopcaml-forward-sexp (&optional arg)
   "Move the zipper down (from expression at point)."
@@ -324,7 +367,8 @@ removes all existing overlays of type GROUP if present."
 						   'backward
 						   initial))
 				nil
-				selection-mode))
+				selection-mode
+				'backward))
 
 (defun gopcaml-backward-sexp (&optional arg)
   "Move the zipper dow (from expression at point)."
@@ -398,8 +442,8 @@ removes all existing overlays of type GROUP if present."
 	     (- (cadr pre-change) (car pre-change))
 	     (- (cadddr pre-change) (caddr pre-change))))
       (setq area (car (gopcaml-zipper-space-update
-       (car pre-change) (cadr pre-change)
-       (car post-change) (cadr post-change))))
+		       (car pre-change) (cadr pre-change)
+		       (car post-change) (cadr post-change))))
       (when area
 	(move-overlay gopcaml-zipper-overlay (car area) (cadr area))
 	t))))
@@ -548,7 +592,7 @@ removes all existing overlays of type GROUP if present."
 		     (setq start (car area))
 		     (setq end (cadr area))
 		     (setq overlay (make-overlay start end))
-			 ;; (overlay-put overlay 'face 'gopcaml-selection-face)
+		     ;; (overlay-put overlay 'face 'gopcaml-selection-face)
 		     (overlay-put overlay 'face 'gopcaml-zipper-face)
 		     (overlay-put overlay 'gopcaml-kind 'zipper)
 		     (setq gopcaml-zipper-overlay overlay)
@@ -572,7 +616,7 @@ removes all existing overlays of type GROUP if present."
 	    (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-backwards)
 	    (gopcaml-move-zipper-right)
 	    (setq area (car (gopcaml-retrieve-zipper-bounds))))
-	    
+	   
 	   ((and start end (equal end curr))
 	    (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-forwards)
 	    (setq area (car (gopcaml-retrieve-zipper-bounds))))
@@ -580,9 +624,9 @@ removes all existing overlays of type GROUP if present."
 	    (setq area nil)
 	    nil))
 	  (when area
-		  (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
-		  (goto-char (cadr area))
-		  t))
+	    (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+	    (goto-char (cadr area))
+	    t))
       nil)))
 
 (defun gopcaml-zipper-move-forwards ()
@@ -596,9 +640,9 @@ removes all existing overlays of type GROUP if present."
   (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-backwards))
 
 (defun gopcaml-state-filter (cmd)
-    "Determines whether a CMD can be carried out in current Gopcaml mode state."
-    (when (and gopcaml-state(gopcaml-state-available-filter))
-      cmd))
+  "Determines whether a CMD can be carried out in current Gopcaml mode state."
+  (when (and gopcaml-state(gopcaml-state-available-filter))
+    cmd))
 
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
@@ -716,7 +760,7 @@ END is the end of the edited text region."
     (skip-chars-forward " \t\n")
     (looking-at-p "\\(|\\|end\\|module\\|val\\|type\\)")
     )
-)
+  )
 
 
 (defun gopcaml-setup-bindings ()
@@ -728,31 +772,31 @@ END is the end of the edited text region."
   (define-key gopcaml-mode-map (kbd "<backtab>") #'gopcaml-move-backward-to-hole)
   (define-key gopcaml-mode-map (kbd "M-RET") #'gopcaml-mode-insert-type-hole)
   (define-key gopcaml-mode-map (kbd "C-M-u") '(menu-item "" gopcaml-backward-up-list
-						    :filter gopcaml-state-filter))
+							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-d") '(menu-item "" gopcaml-down-list
-						    :filter gopcaml-state-filter))
+							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-n") '(menu-item "" gopcaml-forward-list
-						    :filter gopcaml-state-filter))
+							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-p") '(menu-item "" gopcaml-backward-list
-						    :filter gopcaml-state-filter))
+							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-f") '(menu-item "" gopcaml-forward-sexp
-						    :filter gopcaml-state-filter))
+							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-b") '(menu-item "" gopcaml-backward-sexp
-						    :filter gopcaml-state-filter))
+							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-t") '(menu-item "" gopcaml-zipper-transpose
 							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-u") '(menu-item "" gopcaml-backward-up-list-selection
-						    :filter gopcaml-state-filter))
+							   :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-d") '(menu-item "" gopcaml-down-list-selection
-						    :filter gopcaml-state-filter))
+							   :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-n") '(menu-item "" gopcaml-forward-list-selection
-						    :filter gopcaml-state-filter))
+							   :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-p") '(menu-item "" gopcaml-backward-list-selection
-						    :filter gopcaml-state-filter))
+							   :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-f") '(menu-item "" gopcaml-forward-sexp-selection
-						    :filter gopcaml-state-filter))
+							   :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
-						    :filter gopcaml-state-filter))
+							   :filter gopcaml-state-filter))
   (setq-local forward-sexp-function nil)
   (add-hook 'after-change-functions #'gopcaml-update-dirty-region)
   (add-hook 'before-change-functions #'gopcaml-before-change-remove-type-hole)
@@ -772,8 +816,8 @@ END is the end of the edited text region."
   (if gopcaml-update-timer
       (progn "cancelling gopcaml-update-timer" (cancel-timer gopcaml-update-timer)))
   (setq gopcaml-update-timer nil)
-	(setq gopcaml-state nil)
-	(setq gopcaml-zipper nil)
+  (setq gopcaml-state nil)
+  (setq gopcaml-zipper nil)
   (fundamental-mode))
 
 (defun gopcaml-setup-hook ()
