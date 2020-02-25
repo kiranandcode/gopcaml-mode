@@ -134,11 +134,12 @@ removes all existing overlays of type GROUP if present."
 		  (setq start (car area))
 		  (setq end (cadr area))
 		  (move-overlay gopcaml-zipper-overlay start end)
-		  (let ((wind-start (window-start)) (wind-end (window-end)))
-		    (if (and wind-start wind-end (< wind-start start wind-end))
-			(set-window-point (get-buffer-window buf-name) start)
-		      (goto-char start))
-		    )
+		  ;; (let ((wind-start (window-start)) (wind-end (window-end)))
+		  ;;   (if (and wind-start wind-end (< wind-start start wind-end))
+		  ;; 	(set-window-point (get-buffer-window buf-name) start)
+		  ;;     (goto-char start))
+		  ;;   )
+		  (if (equal direction 'forward) (goto-char end) (goto-char start))
 		  t
 		  )
 	      nil))))
@@ -308,7 +309,7 @@ removes all existing overlays of type GROUP if present."
 				  selection-mode)))
 
 (defun gopcaml-forward-sexp (&optional arg)
-  "Move the zipper dow (from expression at point)."
+  "Move the zipper down (from expression at point)."
   (interactive) (gopcaml-forward-sexp-full nil arg))
 
 (defun gopcaml-forward-sexp-selection (&optional arg)
