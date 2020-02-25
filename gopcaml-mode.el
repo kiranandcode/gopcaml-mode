@@ -619,7 +619,7 @@ removes all existing overlays of type GROUP if present."
       '(menu-item "" gopcaml-forward-list))
     (define-key gopcaml-map (kbd "C-M-p")
       '(menu-item "" gopcaml-backward-list))
-    (define-key gopcaml-map (kbd "C-M-k")
+    (define-key gopcaml-map (kbd "C-M-w")
       '(menu-item "" (lambda () (interactive) (move-gopcaml-zipper #'gopcaml-zipper-kill-region))
 		  ))
     (define-key gopcaml-map (kbd "M-w")
