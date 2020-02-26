@@ -19,6 +19,8 @@ module TextRegion : sig
 
   val to_string : t -> string
 
+  val pp : t -> string
+
   val shift_region : t -> Diff.t -> t
 
   val extend_region : t -> Diff.t -> t
@@ -105,12 +107,14 @@ end = struct
 
   type pos = Position.t
 
-  type t = pos * pos
+  type t = (pos[@opaque]) * (pos[@opaque])
 
   let to_bounds Position.({col=cs;_},{col=ce; _}) = (cs,ce)
 
   let to_string Position.({col=cs;line=ls},{col=ce; line=le}) =
     Printf.sprintf "{col: %d - %d; line: %d - %d}" cs ce ls le
+
+  let pp = to_string
 
   let shift_region (r_start, r_end) shift =
     let open Position in
@@ -174,11 +178,11 @@ end = struct
 
   let distance_line (({ col=c1; line=l1 },{ col=c2; line=l2 }):t) ~point ~line =
     let diff c1 c2 point = match c1,c2 with
-    | -1,-1 | -1, _ | _, -1 -> None
-    | start, ed  -> Some (min (abs (start - point)) (abs (ed - point)))  in
+      | -1,-1 | -1, _ | _, -1 -> None
+      | start, ed  -> Some (min (abs (start - point)) (abs (ed - point)))  in
     let diff_line c1 c2 point = match c1,c2 with
-    | -1,-1 | -1, _ | 0,0 | 0,_ | _,0 | _, -1 -> None
-    | start, ed  -> Some (min (abs (start - point)) (abs (ed - point)))  in
+      | -1,-1 | -1, _ | 0,0 | 0,_ | _,0 | _, -1 -> None
+      | start, ed  -> Some (min (abs (start - point)) (abs (ed - point)))  in
     let col_diff = diff c1 c2 point in
     let line_diff = diff_line l1 l2 line in
     (col_diff, line_diff)
@@ -233,16 +237,89 @@ end = struct
 
 end
 
+
 type unwrapped_type =
   | ModuleExpr
   | ModuleTyp
+  | LetBinding
+  | ValueBinding
+  | ModuleList
+  | ModuleSubst
+  | ModuleOpen
+  | ModuleBinding
+  | ValueType
+  | TypeDecl
+  | Eval
+  | Function
+  | Apply
+  | Match
+  | Try
+  | Tuple
+  | Constructor
+  | Variant
+  | Record
+  | RecordField
+  | Field
+  | Array
+  | IfThenElse
+  | Seq
+  | While
+  | For
+  | Constraint
+  | Coerce
+  | Send
+  | New
+  | AssignField
+  | Override
+  | LetModule
+  | LetException
+  | LabelDeclaration
+  | Assert
+  | Lazy
+  | Poly
+  | NewType
+  | PackModule
+  | BindingOp
+  | LetOp
+  | Extension
+  | WithConstraint
+  | ValueDesc
+  | TypeSubst
+  | Lambda
+[@@deriving show]
 
 type t =
-  | Signature_item of Parsetree.signature_item
-  | Structure_item of Parsetree.structure_item
-  | Sequence of (TextRegion.t * unwrapped_type) option * t list * t * t list
-  | EmptySequence of TextRegion.t * unwrapped_type
+  | Signature_item of Parsetree.signature_item[@opaque]
+  | Structure_item of Parsetree.structure_item[@opaque]
+  | Value_binding of Parsetree.value_binding[@opaque]
+  | Type_declaration of Parsetree.type_declaration[@opaque]
+  | Attribute of Parsetree.attribute[@opaque]
+  | CoreType of Parsetree.core_type[@opaque]
+  | Pattern of Parsetree.pattern[@opaque]
+  | Expression of Parsetree.expression[@opaque]
+  | Text of TextRegion.t
+  | Sequence of ((TextRegion.t * unwrapped_type) option * t list * t * t list)[@opaque]
+  | EmptySequence of TextRegion.t * unwrapped_type[@opaque]
 
+let rec to_string = function
+  | Signature_item _ -> "Signature_item"
+  | Structure_item _ -> "Structure_item"
+  | Value_binding _ -> "Value_binding"
+  | Type_declaration _ -> "Type_declaration"
+  | Attribute  _ -> "Attribute of"
+  | CoreType  _ -> "CoreType of"
+  | Pattern  _ -> "Pattern of"
+  | Text _ -> "Text"
+  | Expression _ -> "Expression of"
+  | Sequence  (bound, left, current, right) ->
+    let bound = match bound with
+      | None -> ""
+      | Some (_,s) -> show_unwrapped_type s
+    in
+    let items = List.map ~f:to_string (left @ current :: right)
+                |> String.concat ~sep:", " in 
+    "Sequence of " ^ bound ^ " (" ^ items ^  ")"
+  | EmptySequence (_, ty) -> "EmptySequence of " ^ (show_unwrapped_type ty)
 
 
 (* Huet's zipper for asts *)
@@ -259,6 +336,7 @@ type location =
   | MkLocation of t * zipper
 
 let rec t_to_bounds = function
+  | Text s -> s
   | Signature_item si ->
     let (iter,get) = TextRegion.ast_bounds_iterator () in
     iter.signature_item iter si;
@@ -266,6 +344,30 @@ let rec t_to_bounds = function
   | Structure_item si ->
     let (iter,get) = TextRegion.ast_bounds_iterator () in
     iter.structure_item iter si;
+    get ()
+  | CoreType ct ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.typ iter ct;
+    get ()
+  | Attribute attr ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.attribute iter attr;
+    get ()
+  | Type_declaration tdcl ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.type_declaration iter tdcl;
+    get ()
+  | Value_binding vb ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.value_binding iter vb;
+    get ()
+  | Pattern pat ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.pat iter pat;
+    get ()
+  | Expression expr ->
+    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    iter.expr iter expr;
     get ()
   (* if its a sequence, take the union *)
   | Sequence (None, left,elem,right) ->
@@ -282,6 +384,13 @@ let t_shift_by_offset ~diff t =
     match t with
     | Signature_item si -> Signature_item (mapper.signature_item mapper si)
     | Structure_item si  -> Structure_item (mapper.structure_item mapper si)
+    | Attribute si  -> Attribute (mapper.attribute mapper si)
+    | CoreType si  -> CoreType (mapper.typ mapper si)
+    | Value_binding vb -> Value_binding (mapper.value_binding mapper vb)
+    | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
+    | Pattern pat -> Pattern (mapper.pat mapper pat)
+    | Expression expr -> Expression (mapper.expr mapper expr)
+    | Text s -> Text (TextRegion.shift_region s diff)
     | Sequence (bounds, left,elem,right) ->
       let left = List.map ~f:map left in
       let right = List.map ~f:map right in
@@ -297,8 +406,6 @@ let t_shift_by_offset ~diff t =
       let region = TextRegion.shift_region region diff in
       EmptySequence (region,ty) in
   map t
-
-
 
 let t_list_to_bounds ls =
   match ls with
@@ -320,6 +427,13 @@ let update_bounds ~diff state =
     match state with
     | Signature_item si -> Signature_item (mapper.signature_item mapper si)
     | Structure_item si -> Structure_item (mapper.structure_item mapper si)
+    | Value_binding vb -> Value_binding (mapper.value_binding mapper vb)
+    | CoreType si  -> CoreType (mapper.typ mapper si)
+    | Attribute si  -> Attribute (mapper.attribute mapper si)
+    | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
+    | Pattern pat -> Pattern (mapper.pat mapper pat)
+    | Expression expr -> Expression (mapper.expr mapper expr)
+    | Text s -> Text (TextRegion.shift_region s diff)
     | Sequence (None, l,c,r) ->
       let update_ls = List.map ~f:update in
       Sequence (None, update_ls l, update c, update_ls r)
@@ -331,123 +445,728 @@ let update_bounds ~diff state =
       let region = TextRegion.shift_region region diff in
       EmptySequence (region,ty)
   in
-
   update state
 
+let t_sort (ls: t list) =
+  ls
+  |> List.map ~f:(fun l -> TextRegion.column_start (t_to_bounds l), l)
+  |> List.sort ~compare:(fun (l, _) (l', _) -> Int.compare l l')
+  |> List.map ~f:(fun (_,l) -> l)
 
-let rec unwrap_module_type ?range
+let  unwrap_loc ({ loc; _ }: 'a Asttypes.loc) =
+  Text (TextRegion.of_location loc)
+(* correct *)
+let rec unwrap_extensions ((loc, payload): Parsetree.extension) =
+  let loc = unwrap_loc loc in
+  match payload with
+  | Parsetree.PStr si ->
+    let si = List.map ~f:(fun v -> Structure_item v) si in
+    let range =
+      let sequence = Sequence (None, [], loc, si) in
+      t_to_bounds sequence in
+    let bounds = Some (range, Extension) in
+    Sequence (bounds, [], loc, si)
+  (* correct *)
+  | Parsetree.PSig si ->
+    let si = List.map ~f:(fun v -> Signature_item v) si in
+    let range =
+      let sequence = Sequence (None, [], loc, si) in
+      t_to_bounds sequence in
+    let bounds = Some (range, Extension) in
+    Sequence (bounds, [], loc, si)
+  (* correct *)
+  | Parsetree.PTyp si ->
+    let si = CoreType si in
+    let range =
+      let sequence = Sequence (None, [], loc, [si]) in
+      t_to_bounds sequence in
+    let bounds = Some (range, Extension) in
+    Sequence (bounds, [], loc, [si])
+  (* correct *)
+  | Parsetree.PPat (pat, expr) ->
+    let si =
+      let expr = Option.map ~f:(fun e -> Expression e ) expr |> Option.to_list in
+      (Pattern pat) :: (expr) in
+    let range =
+      let sequence = Sequence (None, [], loc, si) in
+      t_to_bounds sequence in
+    let bounds = Some (range, Extension) in
+    Sequence (bounds, [], loc, si)
+(* correct *)
+and unwrap_binding_op ({ pbop_op; pbop_pat; pbop_exp; _ }: Parsetree.binding_op) =
+  let loc = unwrap_loc pbop_op in
+  let pat = Pattern pbop_pat in
+  let exp = [Expression pbop_exp] in
+  let range =
+    let sequence = Sequence (None, [], loc, pat :: exp) in
+    t_to_bounds sequence in
+  let bounds = Some (range, BindingOp) in
+  Sequence (bounds, [], loc, pat :: exp)
+(* correct *)
+and unwrap_type_declaration ({
+    ptype_name; ptype_params; ptype_cstrs; ptype_manifest;
+    _
+  }  : Parsetree.type_declaration) =
+  let loc = unwrap_loc ptype_name in
+  let params = List.map ptype_params ~f:(fun (cty, _) -> CoreType cty) in 
+  let strs = List.map ptype_cstrs ~f:(fun (c1, c2, _loc) ->
+      (* let range = TextRegion.of_location loc in *)
+      let c1 = CoreType c1 in
+      let c2 = CoreType c2 in 
+      let range =
+        let sequence = Sequence (None, [], c1, [c2]) in
+        t_to_bounds sequence
+      in
+      let bounds = Some (range, TypeSubst) in
+      Sequence (bounds, [], c1, [c2])
+    ) in
+  let o_man = Option.map ~f:(fun v -> CoreType v) ptype_manifest |> Option.to_list in
+  let items = params @ strs @ o_man in
+  let bounds =
+    let range =
+      let sequence = Sequence (None, [], loc, items) in
+      t_to_bounds sequence
+    in
+    Some (range, TypeDecl)
+  in
+  Sequence (bounds, [], loc, items)
+(* correct *)
+and unwrap_module_type 
     ({ pmty_desc;
-       pmty_loc=location;
        _ (* pmty_loc; pmty_attributes *) }: Parsetree.module_type) : _ option =
-  let meta_pos = match range with
-      None -> Some (TextRegion.of_location location, ModuleTyp)
-    | Some v -> Some (v, ModuleTyp) in
   begin match pmty_desc with
-    (* | Parsetree.Pmty_ident _ -> (??) *)
+    | Parsetree.Pmty_alias loc
+    | Parsetree.Pmty_ident loc ->
+      let loc = unwrap_loc loc in
+      let bounds =
+        let range =
+          let sequence = Sequence (None, [], loc, []) in
+          t_to_bounds sequence in
+        Some (range, ModuleTyp) in 
+      Some (Sequence (bounds, [], loc, []))
     | Parsetree.Pmty_signature (h :: t)  ->
-      Some (Sequence (meta_pos, [], Signature_item h, List.map ~f:(fun x -> Signature_item x) t))
-    | Parsetree.Pmty_functor (_, o_mt, mt) ->
-      begin match Option.bind ~f:unwrap_module_type o_mt with
-        | Some v -> unwrap_module_type mt
-                    |> Option.map ~f:(fun m -> Sequence (meta_pos,[],v,[m]))
-        | None -> unwrap_module_type mt
-                  |> Option.map ~f:(fun m -> Sequence (meta_pos, [], m,[]))
+      let current = Signature_item h in
+      let above = List.map ~f:(fun x -> Signature_item x) t in 
+      let bounds =
+        let range =
+          let sequence = Sequence (None, [], current, above) in
+          t_to_bounds sequence
+        in
+        Some (range, ModuleTyp) in 
+      Some (Sequence (bounds, [], current, above))
+    | Parsetree.Pmty_functor (loc, o_mt, mt) ->
+      let loc = unwrap_loc loc in
+      let o_mt = Option.bind ~f:unwrap_module_type o_mt |> Option.to_list in 
+      let mt = unwrap_module_type mt |> Option.to_list in
+      let items = o_mt @ mt in
+      let range =
+        let sequence = Sequence (None, [], loc, items) in
+        t_to_bounds sequence in
+      let bounds  = Some (range, ModuleTyp) in
+      Some (Sequence (bounds, [], loc, items))
+    | Parsetree.Pmty_with (mt, constraints) ->
+      let mt = unwrap_module_type mt |> Option.to_list in
+      let constraints = List.map ~f:unwrap_with_constraint constraints in
+      let items = constraints @ mt  in
+      begin
+        match items with
+        | [] -> None
+        | h :: t  ->
+          let range =
+            let sequence = Sequence (None, [], h, t) in
+            t_to_bounds sequence
+          in
+          let bounds = Some (range, ModuleTyp) in
+          Some (Sequence (bounds, [], h, t))
       end
-    (* | Parsetree.Pmty_with (_, _) -> (??)
-     * | Parsetree.Pmty_typeof _ -> (??)
-     * | Parsetree.Pmty_extension _ -> (??)
-     * | Parsetree.Pmty_alias _ -> (??) *)
+    | Parsetree.Pmty_typeof mexpr ->
+      let mexpr = unwrap_module_expr mexpr in
+      mexpr
+      |> Option.map ~f:(fun mexpr ->
+          let range =
+            let sequence = Sequence (None, [], mexpr, []) in
+            t_to_bounds sequence
+          in
+          let bounds = Some (range, ModuleTyp) in
+          Sequence (bounds, [], mexpr, []))
+    | Parsetree.Pmty_extension ext ->
+      let ext = unwrap_extensions ext in 
+      let range =
+        let sequence = Sequence (None, [], ext, []) in
+        t_to_bounds sequence
+      in
+      let bounds = Some (range, ModuleTyp) in
+      Some (Sequence (bounds, [], ext, []))
     | _ -> None
-  end 
-
-let rec unwrap_module_expr ?range
+  end
+(* correct *)
+and unwrap_with_constraint (c: Parsetree.with_constraint) =
+  match c with
+  | Parsetree.Pwith_typesubst (loc, type_decl)
+  | Parsetree.Pwith_type (loc, type_decl) ->
+    let loc = unwrap_loc loc in
+    let decl = [unwrap_type_declaration type_decl] in
+    let range =
+      let sequence = Sequence (None, [], loc, decl) in
+      t_to_bounds sequence
+    in
+    let bounds = Some (range, WithConstraint) in
+    Sequence (bounds, [], loc, decl)
+  | Parsetree.Pwith_modsubst (loc1, loc2) 
+  | Parsetree.Pwith_module (loc1, loc2) ->
+    let loc1 = unwrap_loc loc1 in
+    let loc2 = unwrap_loc loc2 in
+    let range =
+      let sequence = Sequence (None, [], loc1, [loc2]) in
+      t_to_bounds sequence
+    in
+    let bounds = Some (range, WithConstraint) in
+    Sequence (bounds, [], loc1, [loc2])
+and unwrap_module_expr ?range
     ({ pmod_desc;
        pmod_loc=location;
        _ (* pmod_loc; pmod_attributes *) }: Parsetree.module_expr)  =
   let meta_pos = match range with None -> Some (TextRegion.of_location location,ModuleExpr)
                                 | Some v -> Some (v,ModuleExpr) in
   match pmod_desc with
-  (* | Parsetree.Pmod_ident _ -> (??) *) (* X *)
+  | Parsetree.Pmod_ident loc ->
+    let loc = unwrap_loc loc in
+    Some (Sequence (meta_pos, [], loc, []))
   | Parsetree.Pmod_structure (m :: mt) ->
     Some (Sequence (meta_pos,[], Structure_item m, List.map ~f:(fun x -> Structure_item x) mt))
   (* struct ... end *)
-  | Parsetree.Pmod_functor (_, o_mt, me) ->
-    let o_mt = Option.bind ~f:unwrap_module_type o_mt in
-    let o_me = unwrap_module_expr me in
-    let expr = [o_mt; o_me] |> List.map ~f:(Option.to_list) |> ListLabels.flatten in
-    begin match expr with
-      | [h;r] -> Some (Sequence (meta_pos, [], h, [r]))
-      | [h] -> Some (Sequence (meta_pos, [], h, []))
-      | _ -> None
-    end
+  | Parsetree.Pmod_functor (loc, o_mt, me) ->
+    let loc = unwrap_loc loc in 
+    let o_mt = Option.bind ~f:unwrap_module_type o_mt |> Option.to_list in
+    let o_me = unwrap_module_expr me |> Option.to_list in
+    let items = o_mt @ o_me in
+    Some (Sequence (meta_pos, [], loc, items))
   | Parsetree.Pmod_apply (mexp1, mexp2) ->
     let expr = [mexp1;mexp2]
                |> List.map ~f:unwrap_module_expr
                |> List.map ~f:Option.to_list
                |> ListLabels.flatten in
     begin match expr with
-      | [h;r] -> Some (Sequence (meta_pos, [], h, [r]))
-      | [h] -> Some (Sequence (meta_pos, [], h, []))
+      | h :: t -> Some (Sequence (meta_pos, [], h, t))
       | _ -> None
     end
   | Parsetree.Pmod_constraint (mexp1, mtyp1) ->
-    let (let+) x f = Option.bind ~f x in
-    let+ mexp1 = unwrap_module_expr mexp1 in
-    let+ mtyp1 = unwrap_module_type mtyp1 in
-    Some (Sequence (meta_pos, [], mexp1, [mtyp1]))
-  (* | Parsetree.Pmod_unpack _ -> (??) *)
-  (* | Parsetree.Pmod_extension _ -> (??) *)
+    let mexp = unwrap_module_expr mexp1 |> Option.to_list in
+    let mtyp = unwrap_module_type mtyp1 |> Option.to_list in
+    let items =  mtyp @ mexp in 
+    begin match items with
+      | h :: t -> Some (Sequence (meta_pos, [], h, t))
+      | _ -> None
+    end
+  | Parsetree.Pmod_unpack expr ->
+    let expr = Expression expr in
+    Some (Sequence (meta_pos, [], expr, []))
+  | Parsetree.Pmod_extension ext ->
+    let ext = unwrap_extensions ext in
+    Some (Sequence (meta_pos, [], ext, []))
   | _ -> None
-
-
-let t_descend t =
-  let range = t_to_bounds t in
+and unwrap_case ({ pc_lhs; pc_guard; pc_rhs }: Parsetree.case) =
+  let items =
+    let patt = [Pattern pc_lhs] in
+    let guard = Option.map ~f:(fun v -> Expression v) pc_guard |> Option.to_list in
+    let expr = [Expression pc_rhs] in
+    patt @ guard @ expr in
+  begin
+    match items with
+    | h :: t ->
+      let range =
+          let sequence = Sequence (None, [], h, t) in
+          t_to_bounds sequence
+      in
+      let bounds = Some (range, Function) in 
+      Some (Sequence (bounds, [], h, t))
+    | [] -> None
+  end
+and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
+  let range = 
+    t_to_bounds (Expression expr) in
+  match pexp_desc with
+  (* | Parsetree.Pexp_ident _ -> (??) *)
+  (* | Parsetree.Pexp_constant _ -> (??) *)
+  | Parsetree.Pexp_let (_, vbs, expr) ->
+    let vbs = List.map ~f:(fun vb -> Value_binding vb) vbs in
+    let expr,t = match unwrap_expr expr with
+      | Sequence (Some (_,LetBinding), [], h, t)  -> h, t
+      | Sequence (Some (_,BindingOp), [], h, t)  -> h, t
+      | Sequence (Some (_,Seq), [], h, t)  -> h, t
+      | Sequence (Some (_,LetOp), [], h, t)  -> h, t
+      | Sequence (Some (_,Extension), [], h, t)  -> h, t
+      | _ -> Expression expr,[] in
+    let bounds = Some (range, LetBinding) in
+    begin
+      match vbs with
+      | v :: vbs -> Sequence (bounds, [], v, vbs @ expr :: t)
+      | [] -> Sequence (bounds, [], expr, t)
+    end 
+  | Parsetree.Pexp_function (cases) ->
+    let cases = List.filter_map ~f:unwrap_case cases in
+    let bounds = Some (range, Function) in
+    begin
+      match cases with
+      | [] -> Expression expr
+      | h :: t -> Sequence (bounds, [], h, t)
+    end
+  | Parsetree.Pexp_fun (_, o_deflt, pat, expr) ->
+    let items =
+      let dflt = Option.map ~f:(fun e -> Expression e) o_deflt
+                 |> Option.to_list in
+      let pat = [Pattern pat] in
+      let expr = match unwrap_expr expr with
+        | Sequence (Some (_,Lambda), [], h, t)  -> h :: t
+        | Sequence (Some (_,Constraint), [], h, t)  -> h :: t
+        (* intermediate *)
+        | Sequence (Some (_,LetBinding), [], h, t)  -> h :: t
+        | Sequence (Some (_,BindingOp), [], h, t)  -> h:: t
+        | Sequence (Some (_,Seq), [], h, t)  -> h:: t
+        | Sequence (Some (_,LetOp), [], h, t)  -> h:: t
+        | Sequence (Some (_,Extension), [], h, t)  -> h:: t
+        | _ -> [Expression expr]
+      in
+      dflt @ pat @ expr in 
+    let bounds = Some (range, Lambda) in
+    begin
+      match items with
+      | [] -> assert false
+      | h :: t -> Sequence (bounds, [], h , t)
+    end
+  | Parsetree.Pexp_apply (expr, elems) ->
+    let expr = Expression expr in
+    let elems = List.map ~f:(fun (_,e) -> Expression e) elems in
+    let bounds  = Some (range, Apply) in
+    let items = t_sort (expr :: elems) in 
+    begin
+      match items with
+      | [] -> assert false
+      | h :: t -> Sequence (bounds, [], h, t)
+    end
+  | Parsetree.Pexp_match (expr, cases) ->
+    let expr = Expression expr in
+    let cases = List.filter_map ~f:unwrap_case cases in
+    begin
+      match cases with
+      | [] -> expr
+      | h :: t -> Sequence (Some (range, Match), [], expr, h::t)
+    end
+  | Parsetree.Pexp_try (expr, cases) ->
+    let expr = Expression expr in
+    let cases = List.filter_map ~f:unwrap_case cases in
+    begin
+      match cases with
+      | [] -> expr
+      | h :: t -> Sequence (Some (range, Try), [], expr, h::t)
+    end
+  | Parsetree.Pexp_tuple (e :: exprs) ->
+    let expr = Expression e in
+    let exprs = List.map ~f:(fun e -> Expression e) exprs in
+    let bounds = Some (range, Tuple) in
+    begin
+      match exprs with
+      | [] -> expr
+      | h :: t -> Sequence (bounds, [], expr, h :: t)
+    end
+  | Parsetree.Pexp_construct (_, Some expr) ->
+    let expr = Expression expr in
+    let bounds = Some (range, Constructor) in 
+    Sequence (bounds, [], expr, [])
+  | Parsetree.Pexp_variant (_, Some expr) ->
+    let expr = Expression expr in
+    let bounds = Some (range, Variant) in 
+    Sequence (bounds, [], expr, [])
+  | Parsetree.Pexp_record (exp_list, exp) ->
+    let exps = List.map ~f:(fun (vl, exp) ->
+        let vl = unwrap_loc vl in
+        let exp = Expression exp in 
+        let range = 
+          let sequence = Sequence (None, [], vl, [exp]) in 
+          t_to_bounds sequence in
+        let bounds = Some (range, RecordField) in
+        Sequence (bounds, [], vl, [exp])
+      ) exp_list in
+    let exp = Option.map ~f:(fun v -> Expression v) exp |> Option.to_list in
+    let items = exps @ exp in
+    let bounds = Some (range, Record) in     
+    begin
+      match items with
+      | h :: t -> Sequence (bounds, [], h, t)
+      | [] -> Expression expr
+    end
+  | Parsetree.Pexp_field (expr, loc) ->
+    let expr = Expression expr in
+    let loc = unwrap_loc loc in
+    let bounds = Some (range, Field) in
+    Sequence (bounds, [], expr, [loc])
+  | Parsetree.Pexp_setfield (e1, loc, e2) ->
+    let e1 = Expression e1 in
+    let loc = unwrap_loc loc in
+    let e2 = Expression e2 in
+    let bounds = Some (range, Field) in
+    Sequence (bounds, [], e1, [loc; e2])
+  | Parsetree.Pexp_array (h :: t) ->
+    let expr = Expression h in
+    let t = List.map ~f:(fun v -> Expression v) t in
+    let bounds = Some (range, Array) in
+    Sequence (bounds, [], expr, t)
+  | Parsetree.Pexp_ifthenelse (e1, e2, oe3) ->
+    let e1 = Expression e1 in
+    let e2 = Expression e2 in
+    let e3 = Option.map oe3 ~f:(fun e -> Expression e) |> Option.to_list in
+    let bounds = Some (range, IfThenElse) in
+    Sequence (bounds, [], e1, e2::e3)
+  | Parsetree.Pexp_sequence (e1, e2) ->
+    let e1 = Expression e1 in
+    let e2 =
+      let sub_expression = unwrap_expr e2 in
+      match sub_expression with
+      | Sequence (Some (_,LetBinding), [], h, t)  -> h ::  t
+      | Sequence (Some (_,BindingOp), [], h, t)  -> h :: t
+      | Sequence (Some (_,Seq), [], h, t)  -> h :: t
+      | Sequence (Some (_,LetOp), [], h, t)  -> h :: t
+      | Sequence (Some (_,Extension), [], h, t)  -> h :: t
+      | _ -> [Expression e2] in
+    let bounds = Some (range, Seq) in
+    Sequence (bounds, [], e1, e2)
+  | Parsetree.Pexp_while (e1, e2) ->
+    let e1 = Expression e1 in
+    let e2 = Expression e2 in
+    let bounds = Some (range, While) in
+    Sequence (bounds, [], e1, [e2])
+  | Parsetree.Pexp_for (pat, e1, e2, _, e3) ->
+    let pat = Pattern pat in
+    let e1 = Expression e1 in
+    let e2 = Expression e2 in
+    let e3 = Expression e3 in
+    let bounds = Some (range, For) in
+    Sequence (bounds, [], pat, [e1;e2;e3])
+  | Parsetree.Pexp_constraint (exp, coretype) ->
+    let expr = Expression exp in
+    let coretype = CoreType coretype in
+    let bounds = Some (range, Constraint) in
+    Sequence (bounds, [], coretype, [expr])
+  | Parsetree.Pexp_coerce (e1, c1, c2) ->
+    let e1 = Expression e1 in
+    let c1 = Option.map ~f:(fun v -> CoreType v) c1 |> Option.to_list in
+    let c2 =  [CoreType c2] in
+    let bounds = Some (range, Coerce) in
+    Sequence (bounds, [], e1, c1 @ c2)
+  | Parsetree.Pexp_send (e1, loc) ->
+    let e1 = Expression e1 in
+    let loc = unwrap_loc loc in
+    let bounds = Some (range, Send) in
+    Sequence (bounds, [], e1, [loc])
+  | Parsetree.Pexp_new location ->
+    let location = unwrap_loc location in
+    let bounds = Some (range, New) in
+    Sequence (bounds, [], location, [])
+  | Parsetree.Pexp_setinstvar (loc, e1) ->
+    let loc = unwrap_loc loc in
+    let e1 = Expression e1 in
+    let bounds = Some (range, AssignField) in
+    Sequence (bounds, [], loc, [e1])
+  | Parsetree.Pexp_override ls ->
+    let items = List.map ~f:(fun (loc,expr) ->
+        let loc = unwrap_loc loc in
+        let expr  = Expression expr in
+        let range =
+          let sequence = Sequence (None, [], loc, [expr]) in
+          t_to_bounds sequence in
+        let bounds = Some (range, Field) in
+        Sequence (bounds, [], loc, [expr])
+      ) ls in
+    let bounds = Some (range, Override) in
+    begin
+      match items with
+      | h :: t -> Sequence (bounds, [], h, t)
+      | [] -> Expression expr
+    end
+  | Parsetree.Pexp_letmodule (loc, mexpr, expr) ->
+    let loc = unwrap_loc loc in 
+    let mexpr =  unwrap_module_expr mexpr |> Option.to_list in
+    let expr = [Expression expr] in
+    let bounds = Some (range, LetModule) in 
+    Sequence (bounds, [], loc, mexpr @ expr)
+  | Parsetree.Pexp_letexception ({ pext_kind; pext_loc; _  }, expr) ->
+    let expn = match pext_kind with
+      | Parsetree.Pext_decl (args, otype) ->
+        let args = match args with
+          | Parsetree.Pcstr_tuple ctys ->
+            let otype = Option.map ~f:(fun v -> CoreType v) otype
+                        |> Option.to_list in 
+            let ctys = List.map ~f:(fun ct -> CoreType ct) ctys in
+            begin
+              match ctys @ otype with
+              | [] -> None
+              | h :: t ->
+                let range =
+                  let sequence = Sequence (None,[],h,t) in
+                  t_to_bounds sequence
+                in
+                Some (Sequence (Some (range, Constructor), [],h,t))
+            end
+          | Parsetree.Pcstr_record labels ->
+            let decls = List.map labels ~f:(fun { pld_type; pld_loc; _ } ->
+                let cyt = CoreType pld_type in
+                let range =
+                  TextRegion.of_location pld_loc
+                in
+                let bounds = Some (range, LabelDeclaration) in
+                (Sequence (bounds, [], cyt, []))
+              ) in
+            match decls with
+            | h :: t ->
+              let range =
+                let sequence = Sequence (None, [], h, t) in
+                t_to_bounds sequence
+              in
+              let bounds = Some (range, Record) in
+              Some (Sequence (bounds, [], h, t))
+            | [] -> None 
+        in
+        let args = args |> Option.to_list in
+        let otype = Option.map ~f:(fun v -> CoreType v) otype
+                    |> Option.to_list in
+        args @ otype 
+      | Parsetree.Pext_rebind loc -> [unwrap_loc loc] in
+    let range = TextRegion.of_location pext_loc in
+    let bounds = Some (range, LetException) in
+    begin
+      match expn with
+      | h :: t -> Sequence (bounds, [], h, t)
+      | [] -> Expression expr
+    end
+  | Parsetree.Pexp_assert expression ->
+    Sequence (Some (range, Assert), [], Expression expression, [])
+  | Parsetree.Pexp_lazy expr -> 
+    Sequence (Some (range, Lazy), [], Expression expr, [])
+  | Parsetree.Pexp_poly (expr, cty) ->
+    let expr = Expression expr in
+    let cty = Option.map ~f:(fun ct -> CoreType ct) cty
+              |> Option.to_list in
+    let bounds = Some (range, Poly) in
+    Sequence (bounds, [], expr, cty)
+  | Parsetree.Pexp_newtype (loc, expr) ->
+    let loc = unwrap_loc loc in
+    let expr = Expression expr in
+    let bounds = Some (range, NewType) in
+    Sequence (bounds, [], loc, [expr])
+  | Parsetree.Pexp_pack mexpr ->
+    let mexpr = unwrap_module_expr mexpr in
+    begin
+      match mexpr with
+      | None -> Expression expr
+      | Some mexpr ->
+        Sequence (Some (range, PackModule), [], mexpr, [])
+    end
+  | Parsetree.Pexp_open ({ popen_expr; _ }, expr) ->
+    let mod_expr = unwrap_module_expr popen_expr in
+    let expr = Expression expr in
+    begin
+      match mod_expr with
+      | Some mod_expr -> Sequence (Some (range, ModuleOpen), [], mod_expr, [expr])
+      | None -> Sequence (Some (range, ModuleOpen), [], expr, [])
+    end
+  | Parsetree.Pexp_letop { let_; ands; body } ->
+    let current = unwrap_binding_op let_ in
+    let right1 = List.map ~f:unwrap_binding_op ands in
+    let right2 =
+      let sub_expression = unwrap_expr body in
+      match sub_expression with
+      | Sequence (Some (_,LetBinding), [], h, t)  -> h ::  t
+      | Sequence (Some (_,BindingOp), [], h, t)  -> h :: t
+      | Sequence (Some (_,Seq), [], h, t)  -> h :: t
+      | Sequence (Some (_,LetOp), [], h, t)  -> h :: t
+      | Sequence (Some (_,Extension), [], h, t)  -> h :: t
+      | _ -> [Expression body] in
+    let bounds = Some (range, LetOp) in
+    Sequence (bounds, [], current, right1 @ right2)
+  | Parsetree.Pexp_extension ext ->
+    unwrap_extensions ext
+  | _ -> Expression expr
+(* | Parsetree.Pexp_object _ -> (??) *)
+(* | Parsetree.Pexp_unreachable -> (??) *)
+and unwrap_module_binding ({ pmb_name=loc; pmb_expr; _ }: Parsetree.module_binding) =
+  let loc  = unwrap_loc loc in
+  let pmb_expr = unwrap_module_expr pmb_expr |> Option.to_list in
+  let bounds =
+    let range =
+      let sequence = Sequence (None, [], loc, pmb_expr) in
+      t_to_bounds sequence
+    in
+    Some (range, ModuleBinding)
+  in
+  Sequence (bounds, [], loc, pmb_expr)
+and unwrap_module_declaration ({ pmd_name=loc; pmd_type; _ (* pmd_loc *) }:
+                                 Parsetree.module_declaration) =
+  let loc = unwrap_loc loc in
+  let md_type = unwrap_module_type pmd_type |> Option.to_list in
+  let range =
+    let sequence = Sequence (None, [], loc, md_type)  in
+    t_to_bounds sequence
+  in 
+  let bounds = Some (range,ModuleTyp) in
+  Sequence (bounds, [], loc, md_type)
+and unwrap_value_description ({ pval_name; pval_type; _ }: Parsetree.value_description) =
+  let loc = unwrap_loc pval_name in
+  let ty = CoreType pval_type in
+  let range =
+    let sequence = Sequence (None, [], loc, [ty]) in
+    t_to_bounds sequence
+  in
+  let bounds = Some (range, ValueDesc) in
+  Sequence (bounds, [], loc, [ty])
+and t_descend ?range t =
+  let range = Option.value range ~default:(t_to_bounds t) in
   match t with
+  | Expression expr -> unwrap_expr expr
+  | Value_binding { pvb_pat; pvb_expr; _ } ->
+    let current = Pattern pvb_pat in
+    let right = match unwrap_expr pvb_expr with
+      | Sequence (Some (_,Lambda), [], h, t)  -> h :: t
+      | Sequence (Some (_,Constraint), [], h, t)  -> h :: t
+      | _ -> [Expression pvb_expr]
+    in
+    let bounds = Some (range, ValueBinding) in 
+    Sequence (bounds, [], current, right)
   | Signature_item ({ psig_desc; _ } as si) ->
     begin match psig_desc with
-      (* | Parsetree.Psig_value _ -> (??) *) (* val x: T *)
-      (* | Parsetree.Psig_type (_, _) -> (??) *)  (* type t1 = ... and tn = ... *)
-      (* | Parsetree.Psig_typesubst _ -> (??) *) (* type t1 = ... and tn = ... *)
-      (* | Parsetree.Psig_typext _ -> (??) *) (* type t1 += ... *)
-      (* | Parsetree.Psig_exception _ -> (??) *) (* type exn *)
+      | Parsetree.Psig_value {pval_name;pval_type; _} ->
+        let loc = unwrap_loc pval_name in
+        let items = [CoreType pval_type] in
+        let bounds = Some (range, ValueDesc) in
+        Sequence (bounds, [], loc, items)
+      (* val x: T *)
+      | Parsetree.Psig_typesubst fields
+      (* type t1 = ... and tn = ... *)
+      | Parsetree.Psig_type (_, fields) ->
+        begin
+          match List.map ~f:unwrap_type_declaration fields with
+          | h:: t -> Sequence (Some (range, TypeDecl), [], h, t)
+          | [] -> Signature_item si
+        end
+      (* type t1 = ... and tn = ... *)
       | Parsetree.Psig_module {
-          (* pmd_name; *)
+          pmd_name=loc;
           pmd_type=pmd_type;
           (* pmd_attributes;
            * pmd_loc *) _ } ->
-        unwrap_module_type ~range pmd_type |> Option.value ~default:(Signature_item si)
-      | _ -> Signature_item si
-      (* | Parsetree.Psig_modsubst _ -> (??) *)
-      (* | Parsetree.Psig_recmodule _ -> (??) *)
-      (* | Parsetree.Psig_modtype _ -> (??) *)
-      (* | Parsetree.Psig_open _ -> (??) *)
-      (* | Parsetree.Psig_include _ -> (??) *)
+        let loc = unwrap_loc loc in
+        let items = unwrap_module_type pmd_type |> Option.to_list in
+        let bounds = Some (range, ModuleTyp) in 
+        Sequence (bounds, [], loc, items)
+      | Parsetree.Psig_modsubst { pms_attributes=l::ls; _ } ->
+        let bounds = Some (range, ModuleSubst) in
+        let current = Attribute l in
+        let right = List.map ~f:(fun v -> Attribute v) ls in
+        Sequence (bounds, [], current, right)
+      | Parsetree.Psig_recmodule ls ->
+        let elems  = List.map ~f:unwrap_module_declaration ls in
+        let bounds = Some (range, ModuleList) in
+        begin
+          match elems with
+          | current::right -> Sequence (bounds, [], current, right)
+          | [] -> Signature_item si
+        end
+      | Parsetree.Psig_include { pincl_mod=ty; (* pincl_loc; *) pincl_attributes=attrs; _ } 
+      | Parsetree.Psig_modtype {  pmtd_type=Some ty; pmtd_attributes=attrs; _ (* pmtd_loc *) } ->
+        let current = unwrap_module_type ty in
+        let attributes = List.map ~f:(fun a -> Attribute a) attrs in
+        let bounds = Some (range, ModuleList) in
+        begin
+          match current,attributes with
+          | Some current, left -> Sequence (bounds, left, current,[])
+          | None, h :: t -> Sequence (bounds, [], h, t)
+          | _ -> Signature_item si
+        end
+      | Parsetree.Psig_open
+          { (* popen_expr; popen_override; popen_loc; *) popen_attributes=l::ls; _ } ->
+        let current = Attribute l in
+        let right = List.map ~f:(fun v -> Attribute v) ls in
+        let bounds = Some (range, ModuleOpen) in
+        Sequence (bounds, [], current, right)
+      | Parsetree.Psig_attribute attr -> Attribute attr
+      (* | Parsetree.Psig_typext _ -> (??) *) (* type t1 += ... *)
+      (* | Parsetree.Psig_exception _ -> (??) type exn *)
       (* | Parsetree.Psig_class _ -> (??) *)
       (* | Parsetree.Psig_class_type _ -> (??) *)
-      (* | Parsetree.Psig_attribute _ -> (??) *)
-      (* | Parsetree.Psig_extension (_, _) -> (??)) *)
+      | _ -> Signature_item si
     end
   | Structure_item ({ pstr_desc; _ } as si) -> begin match pstr_desc with
-      (* | Parsetree.Pstr_eval (_, _) -> (??) *) (* E *)
-      (* | Parsetree.Pstr_value (_, _) -> (??) *)  (* let P1 = E1 and ... and Pn = EN *)
-      (* | Parsetree.Pstr_primitive _ -> (??) *)
-      (* | Parsetree.Pstr_type (_, _) -> (??) *)
+      | Parsetree.Pstr_eval (expr, attr) ->
+        let current = Expression expr in
+        let right = List.map ~f:(fun v -> Attribute v) attr in
+        let bounds = Some (range, Eval) in
+        Sequence (bounds, [], current, right)
+      (* E *)
+      | Parsetree.Pstr_value (_, v :: vb) ->
+        let right = List.map ~f:(fun vb -> Value_binding vb) vb in
+        let left = [] in
+        let current = Value_binding v in
+        let bounds = Some (range, LetBinding) in
+        Sequence (bounds,left,current,right)
+      (* let P1 = E1 and ... and Pn = EN *)
+      | Parsetree.Pstr_primitive {
+          pval_name=loc;
+          pval_type; _
+        } ->
+        let loc = unwrap_loc loc in 
+        let ty = CoreType pval_type in
+        let bounds = Some (range, ValueBinding) in
+        Sequence (bounds, [], loc, [ty])
+      | Parsetree.Pstr_type (_, t :: ts) ->
+        let right = List.map ~f:(fun vb -> Type_declaration vb) ts in
+        let left = [] in
+        let current = Type_declaration t in
+        let bounds = Some (range, TypeDecl) in
+        Sequence (bounds,left,current,right)
+      | Parsetree.Pstr_module module_binding ->
+        let mb = unwrap_module_binding module_binding in
+        let bounds = Some (range, ModuleExpr) in
+        Sequence (bounds, [], mb, [])
+      | Parsetree.Pstr_recmodule vs ->
+        let vs = List.map ~f:unwrap_module_binding vs in
+        let bounds = Some (range, ModuleExpr) in
+        begin
+          match vs with
+          | h :: t -> Sequence (bounds, [], h, t)
+          | [] -> Structure_item si
+        end
+      | Parsetree.Pstr_modtype { pmtd_name=loc; pmtd_type; _ } ->
+        let loc = unwrap_loc loc in 
+        let ty = Option.bind ~f:unwrap_module_type pmtd_type
+                 |> Option.to_list in
+        let bounds = Some (range, ModuleTyp) in
+        Sequence (bounds, [], loc, ty)
+      | Parsetree.Pstr_include { pincl_mod=expr;  _ }
+      | Parsetree.Pstr_open { popen_expr=expr; _ } ->
+        let expr = unwrap_module_expr expr |> Option.to_list in
+        let items = expr in
+        let bounds = Some (range, ModuleOpen) in
+        begin
+          match items with
+          | h :: t -> Sequence (bounds, [], h, t)
+          | [] -> Structure_item si
+        end
+      | Parsetree.Pstr_attribute attr -> Attribute attr
       (* | Parsetree.Pstr_typext _ -> (??) *)
       (* | Parsetree.Pstr_exception _ -> (??) *)
-      | Parsetree.Pstr_module { (* pmb_name; *) pmb_expr; _ (* pmb_attributes; pmb_loc *) } ->
-        unwrap_module_expr ~range pmb_expr |> Option.value ~default:(Structure_item si)
-      (* | Parsetree.Pstr_recmodule _ -> (??) *)
-      (* | Parsetree.Pstr_modtype _ -> (??) *)
-      (* | Parsetree.Pstr_open _ -> (??) *)
       (* | Parsetree.Pstr_class _ -> (??) *)
       (* | Parsetree.Pstr_class_type _ -> (??) *)
-      (* | Parsetree.Pstr_include _ -> (??) *)
-      (* | Parsetree.Pstr_attribute _ -> (??) *)
       (* | Parsetree.Pstr_extension (_, _) -> (??) *)
       | _ -> Structure_item si
     end
-  | v -> v
-
+  | v ->
+    v
+and go_down (MkLocation (current,parent)) =
+  match t_descend current with
+  | Sequence (bounds, [],focused,[]) ->
+    go_down (MkLocation (focused, Node {below=[];parent;above=[]; bounds;}))
+  | Sequence (bounds, left,focused,right) ->
+    Some (MkLocation (focused, Node {below=left;parent;above=right; bounds;}))
+  | _ -> None
 
 let make_zipper_intf left intf right =
   let left = List.map ~f:(fun x -> Signature_item x) left in
@@ -460,7 +1179,6 @@ let make_zipper_impl left impl right =
   let right = List.map ~f:(fun x -> Structure_item x) right in
   let impl = Structure_item impl in
   MkLocation (Sequence (None, List.rev left, impl, right), Top)
-
 
 let at_start current point =
   match current with
@@ -556,6 +1274,18 @@ let rec move_zipper_to_point point line forward =
       | v -> (MkLocation (v, parent))
     else v
 
+(** determines whether the item is a toplevel thing that can be freely
+    moved around - (internal let in etc. are not supported within the
+    zipper.) *)
+let is_top_level  = function
+  | Structure_item _ 
+  | Signature_item _
+  | Sequence (Some (_, ModuleTyp), _, _ , _) 
+  | Sequence (Some (_, ModuleExpr), _, _ , _) ->
+    true
+  | _ -> false
+
+
 (** moves the location to the nearest structure item enclosing or around it   *)
 let rec move_zipper_broadly_to_point point line forward =
   let distance region =
@@ -624,21 +1354,27 @@ let rec move_zipper_broadly_to_point point line forward =
     end
   | (MkLocation (current,parent) as v) ->
     if  TextRegion.contains_point (t_to_bounds current) point
-    then match t_descend current with
-      | (Sequence _ as s) ->
-        let (MkLocation (current', _) as zipper) =
-          move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
-        let selected_distance =
-          distance (t_to_bounds current') in
-        let enclosing_distance =
-          distance (t_to_bounds current) in
-        if (snd3 enclosing_distance < snd3 selected_distance) ||
-           ((trd3 enclosing_distance = trd3 selected_distance) &&
-            (trd3 enclosing_distance < trd3 selected_distance)) ||
-           (fst3 selected_distance > line)
-        then v
-        else zipper
-      | v -> (MkLocation (v, parent))
+    then
+      begin
+        let descend = t_descend current in
+        if not (is_top_level descend) then v else
+          match descend with
+          | (Sequence _ as s) ->
+            let (MkLocation (current', _) as zipper) =
+              move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
+            let selected_distance =
+              distance (t_to_bounds current') in
+            let enclosing_distance =
+              distance (t_to_bounds current) in
+            if (snd3 enclosing_distance < snd3 selected_distance) ||
+               ((trd3 enclosing_distance = trd3 selected_distance) &&
+                (trd3 enclosing_distance < trd3 selected_distance)) ||
+               (fst3 selected_distance > line)
+            then v
+            else zipper
+          | v -> (MkLocation (v, parent))
+
+      end
     else v
 
 module Synthesis = struct
@@ -777,6 +1513,10 @@ let insert_element (MkLocation (current,parent)) (element: t)  =
     let parent = Node {below=current::below; parent; above; bounds} in
     Some (MkLocation (element,parent), editing_pos)
 
+
+let describe_current_item  (MkLocation (current,_)) =
+  Ecaml.message (to_string current)
+
 let go_up (MkLocation (current,parent)) =
   match parent with
   | Top -> None
@@ -784,52 +1524,43 @@ let go_up (MkLocation (current,parent)) =
     let current = Sequence (bounds, below,current,above) in
     Some (MkLocation (current,parent))
 
-let go_down (MkLocation (current,parent)) =
-  match t_descend current with
-  | Sequence (bounds, left,focused,right) ->
-    Some (MkLocation (focused, Node {below=left;parent;above=right; bounds;}))
-  | _ -> None
 
-let go_left (MkLocation (current,parent) as loc) =
+let rec go_left ?left_bounds (MkLocation (current,parent) as loc) =
+  let calculate_bounds (MkLocation (current, _)) = t_to_bounds current |> TextRegion.column_start in 
+  let left_bounds = match left_bounds with
+    | Some v -> v
+    | None -> calculate_bounds loc in 
   match parent with
   | Node { bounds; below=l::left; parent; above } ->
     Some (MkLocation (l, Node {below=left; parent; above=current::above; bounds}))
-  | _ -> go_up loc
+  | _ ->
+    match go_up loc with
+    | None -> None
+    | Some zipper ->
+      let new_left_bounds = calculate_bounds zipper in
+      if new_left_bounds = left_bounds then
+        Some (Option.value (go_left ~left_bounds zipper) ~default:zipper)
+      else Some zipper
 
-let go_right (MkLocation (current,parent) as loc) =
+
+
+
+let rec go_right ?right_bounds (MkLocation (current,parent) as loc) =
+  let calculate_bounds (MkLocation (current, _)) = t_to_bounds current |> TextRegion.column_end in 
+  let right_bounds = match right_bounds with
+    | Some v -> v
+    | None -> calculate_bounds loc in 
   match parent with
   | Node { below; parent; above=r::right; bounds } ->
     Some (MkLocation (r, Node {below=current::below; parent; above=right; bounds}))
-  | _ -> go_up loc
-
-let update_zipper_space_bounds (MkLocation (current,parent))
-    (pre_column,pre_line) (post_column,post_line) =
-  let pre_diff = TextRegion.Diff.of_pair ~line:pre_line ~col:pre_column
-               |> TextRegion.Diff.negate in
-  let post_diff = TextRegion.Diff.of_pair ~line:post_line ~col:post_column
-                  |> TextRegion.Diff.negate in
-  let current = t_shift_by_offset ~diff:pre_diff current in
-  let diff = TextRegion.Diff.combine pre_diff post_diff in
-  let update_bounds = update_bounds ~diff in
-  let update_meta_bound bounds = 
-    match bounds with None -> None
-                    | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
-  in
-  (* update parent *)
-  let rec update_parent parent = match parent with
-      | Top -> Top
-      | Node {below;parent;above; bounds} ->
-        let above = List.map ~f:update_bounds above in
-        let bounds = update_meta_bound bounds in
-        let parent = update_parent parent in 
-        Node {below; parent; above; bounds} in
-  match parent with
-  | Top -> None
-  | Node {below; parent=up; above=right; bounds} ->
-    let right = List.map ~f:update_bounds right in
-    let parent = update_parent up in
-    let bounds = update_meta_bound bounds in
-      Some (MkLocation(current, Node{below;parent;above=right; bounds}))
+  | _ -> 
+    match go_up loc with
+    | None -> None
+    | Some zipper ->
+      let new_right_bounds = calculate_bounds zipper in
+      if new_right_bounds = right_bounds then
+        Some (Option.value (go_right ~right_bounds zipper) ~default:zipper)
+      else Some zipper
 
 (** deletes the current element of the zipper  *)
 let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
@@ -870,37 +1601,56 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       remove_current (MkLocation (current, up)) in
   remove_current loc |> Option.map ~f:(fun v -> v,current_bounds)
 
-(** determines whether the item is a toplevel thing that can be freely
-   moved around - (internal let in etc. are not supported within the
-   zipper.) *)
-let is_top_level  = function
-  | Structure_item _ 
-  | Signature_item _
-  | Sequence (Some (_, ModuleTyp), _, _ , _) 
-  | Sequence (Some (_, ModuleExpr), _, _ , _) ->
-    true
-  | _ -> false
+let update_zipper_space_bounds (MkLocation (current,parent))
+    (pre_column,pre_line) (post_column,post_line) =
+  if not (is_top_level current) then None else 
+    let pre_diff = TextRegion.Diff.of_pair ~line:pre_line ~col:pre_column
+                   |> TextRegion.Diff.negate in
+    let post_diff = TextRegion.Diff.of_pair ~line:post_line ~col:post_column
+                    |> TextRegion.Diff.negate in
+    let current = t_shift_by_offset ~diff:pre_diff current in
+    let diff = TextRegion.Diff.combine pre_diff post_diff in
+    let update_bounds = update_bounds ~diff in
+    let update_meta_bound bounds = 
+      match bounds with None -> None
+                      | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
+    in
+    (* update parent *)
+    let rec update_parent parent = match parent with
+      | Top -> Top
+      | Node {below;parent;above; bounds} ->
+        let above = List.map ~f:update_bounds above in
+        let bounds = update_meta_bound bounds in
+        let parent = update_parent parent in 
+        Node {below; parent; above; bounds} in
+    match parent with
+    | Top -> None
+    | Node {below; parent=up; above=right; bounds} ->
+      let right = List.map ~f:update_bounds right in
+      let parent = update_parent up in
+      let bounds = update_meta_bound bounds in
+      Some (MkLocation(current, Node{below;parent;above=right; bounds}))
 
 let move_up (MkLocation (current,parent) as loc)  =
   let (let+) x f = Option.bind ~f x in
   if not (is_top_level current) then None else 
-  match parent with
-  | Top -> None
-  | Node _ ->
-    let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
-    let+ loc = go_up loc in
-    let+ loc = go_left loc in
-    let+ (loc,insert_pos) = insert_element loc current in
-    Some (loc, insert_pos, TextRegion.to_bounds bounds)
+    match parent with
+    | Top -> None
+    | Node _ ->
+      let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
+      let+ loc = go_up loc in
+      let+ loc = go_left loc in
+      let+ (loc,insert_pos) = insert_element loc current in
+      Some (loc, insert_pos, TextRegion.to_bounds bounds)
 
 let move_down (MkLocation (current,_) as loc)  =
   if not (is_top_level current) then None else 
-  let (let+) x f = Option.bind ~f x in
-  let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
-  let+ (MkLocation (curr,_) as loc) = go_down loc in
-  if not (is_top_level curr) then None else 
-  let+ (loc,insert_pos) = insert_element loc current in
-  Some (loc, insert_pos, TextRegion.to_bounds bounds)
+    let (let+) x f = Option.bind ~f x in
+    let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
+    let+ (MkLocation (curr,_) as loc) = go_down loc in
+    if not (is_top_level curr) then None else 
+      let+ (loc,insert_pos) = insert_element loc current in
+      Some (loc, insert_pos, TextRegion.to_bounds bounds)
 
 (** swaps two elements at the same level, returning the new location  *)
 let calculate_swap_bounds (MkLocation (current,parent)) =
@@ -970,11 +1720,10 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
           })))
   | _ -> None
 
-
 (** finds the item bounds for the nearest structure/signature (essentially defun) item  *)
 let find_nearest_definition_item_bounds point line forward zipper : _ option =
   Ecaml.message "calling find_nearest definition to zipper";
-  let zipper = move_zipper_to_point point line forward zipper in
+  let zipper = move_zipper_broadly_to_point point line forward zipper in
   let rec loop zipper =
     let get_result pos_start pos_end =
       if (not forward && point = pos_start)
@@ -1020,5 +1769,4 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
     | _ ->  (go_up zipper) |> Option.bind ~f:loop
   in
   loop zipper
-
 
