@@ -488,7 +488,6 @@ let rec unwrap_extensions ((loc, payload): Parsetree.extension) =
     Sequence (bounds, [], loc, si)
   (* correct *)
 and unwrap_binding_op ({ pbop_op; pbop_pat; pbop_exp; _ }: Parsetree.binding_op) =
-  (* let range = TextRegion.of_location pbop_loc in *)
   let loc = unwrap_loc pbop_op in
   let pat = Pattern pbop_pat in
   let exp = Expression pbop_exp in
@@ -525,27 +524,39 @@ and unwrap_type_declaration ({
       Some (range, TypeDecl)
   in
   Sequence (bounds, [], loc, items)
-and unwrap_module_type ?range
+and unwrap_module_type 
     ({ pmty_desc;
-       pmty_loc=location;
        _ (* pmty_loc; pmty_attributes *) }: Parsetree.module_type) : _ option =
-  let meta_pos = match range with
-      None -> Some (TextRegion.of_location location, ModuleTyp)
-    | Some v -> Some (v, ModuleTyp) in
   begin match pmty_desc with
     | Parsetree.Pmty_alias loc
     | Parsetree.Pmty_ident loc ->
       let loc = unwrap_loc loc in
-      Some (Sequence (meta_pos, [], loc, []))
+      let bounds =
+        let range =
+          let sequence = Sequence (None, [], loc, []) in
+          t_to_bounds sequence in
+        Some (range, ModuleTyp) in 
+      Some (Sequence (bounds, [], loc, []))
     | Parsetree.Pmty_signature (h :: t)  ->
-      Some (Sequence (meta_pos, [], Signature_item h, List.map ~f:(fun x -> Signature_item x) t))
-    | Parsetree.Pmty_functor (_, o_mt, mt) ->
-      begin match Option.bind ~f:unwrap_module_type o_mt with
-        | Some v -> unwrap_module_type mt
-                    |> Option.map ~f:(fun m -> Sequence (meta_pos, [],v,[m]))
-        | None -> unwrap_module_type mt
-                  |> Option.map ~f:(fun m -> Sequence (meta_pos, [], m,[]))
-      end
+      let current = Signature_item h in
+      let above = List.map ~f:(fun x -> Signature_item x) t in 
+      let bounds =
+        let range =
+          let sequence = Sequence (None, [], current, above) in
+          t_to_bounds sequence
+        in
+        Some (range, ModuleTyp) in 
+      Some (Sequence (bounds, [], current, above))
+    | Parsetree.Pmty_functor (loc, o_mt, mt) ->
+      let loc = unwrap_loc loc in
+      let o_mt = Option.bind ~f:unwrap_module_type o_mt |> Option.to_list in 
+      let mt = unwrap_module_type mt |> Option.to_list in
+      let items = o_mt @ mt in
+      let range =
+        let sequence = Sequence (None, [], loc, items) in
+        t_to_bounds sequence in
+      let bounds  = Some (range, ModuleTyp) in
+      Some (Sequence (bounds, [], loc, items))
     | Parsetree.Pmty_with (mt, constraints) ->
       let mt = unwrap_module_type mt |> Option.to_list in
       let constraints = List.map ~f:unwrap_with_constraint constraints in
@@ -554,16 +565,31 @@ and unwrap_module_type ?range
         match items with
         | [] -> None
         | h :: t  ->
-          Some (Sequence (meta_pos, [], h, t))
+          let range =
+            let sequence = Sequence (None, [], h, t) in
+            t_to_bounds sequence
+          in
+          let bounds = Some (range, ModuleTyp) in
+          Some (Sequence (bounds, [], h, t))
       end
     | Parsetree.Pmty_typeof mexpr ->
       let mexpr = unwrap_module_expr mexpr in
       mexpr
       |> Option.map ~f:(fun mexpr ->
-          Sequence (meta_pos, [], mexpr, []))
+          let range =
+            let sequence = Sequence (None, [], mexpr, []) in
+            t_to_bounds sequence
+          in
+          let bounds = Some (range, ModuleTyp) in
+          Sequence (bounds, [], mexpr, []))
     | Parsetree.Pmty_extension ext ->
       let ext = unwrap_extensions ext in 
-      Some (Sequence (meta_pos, [], ext, []))
+          let range =
+            let sequence = Sequence (None, [], ext, []) in
+            t_to_bounds sequence
+          in
+          let bounds = Some (range, ModuleTyp) in
+      Some (Sequence (bounds, [], ext, []))
     | _ -> None
   end
 and unwrap_with_constraint (c: Parsetree.with_constraint) =

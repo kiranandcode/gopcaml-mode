@@ -167,11 +167,9 @@ removes all existing overlays of type GROUP if present."
 	(progn
 	  (cond
 	   ((equal direction 'forward)
-	    (skip-chars-forward " \n\t")
-	    )
+	    (skip-chars-forward " \n\t"))
 	   ((equal direction 'backward)
-	    (skip-chars-backward " \n\t"))
-	   )
+	    (skip-chars-backward " \n\t")))
 	  (let ((area
 		 (car (funcall zipper-constructor
 			       (point)
@@ -244,26 +242,10 @@ removes all existing overlays of type GROUP if present."
   "Move the zipper forwards (broadly from current point) in SELECTION-MODE."
   (interactive)
   (gopcaml-zipper-mode-and-move (lambda (initial)
-				  (if (not initial)
-				      (progn
-					(move-gopcaml-zipper
-					 #'gopcaml-move-zipper-up
-					 'forward
-					 initial)
-					(move-gopcaml-zipper
-					 #'gopcaml-move-zipper-right
-					 'forward
-					 initial)
-					(move-gopcaml-zipper
-					 #'gopcaml-move-zipper-down
-					 'forward
-					 initial)
-					)
-				    (move-gopcaml-zipper
-				     #'gopcaml-move-zipper-right
-				     'forward
-				     initial)
-				      )
+				  (move-gopcaml-zipper
+				   #'gopcaml-move-zipper-right
+				   'forward
+				   initial)
 				  )
 				#'gopcaml-broadly-build-zipper
 				selection-mode
@@ -280,10 +262,11 @@ removes all existing overlays of type GROUP if present."
 (defun gopcaml-backward-list-full (selection-mode)
   "Move the zipper backwards (broadly from current point) in SELECTION-MODE."
   (interactive)
-  (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
-						   #'gopcaml-move-zipper-left
-						   'backward
-						   initial))
+  (gopcaml-zipper-mode-and-move (lambda (initial)
+				  (move-gopcaml-zipper
+				   #'gopcaml-move-zipper-left
+				   'backward
+				   initial))
 				#'gopcaml-broadly-build-zipper
 				selection-mode
 				'backward))
