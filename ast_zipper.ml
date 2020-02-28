@@ -1285,7 +1285,15 @@ let is_top_level  = function
     true
   | _ -> false
 
+
+let describe_current_item  (MkLocation (current,_)) =
+   (to_string current)
+
+
 let zipper_is_top_level (MkLocation (current,_))  =
+  (* Ecaml.message (Printf.sprintf "current_item: %s\n"
+   *                  (to_string current)
+   *               ); *)
   is_top_level current
 
 
@@ -1381,91 +1389,6 @@ let rec move_zipper_broadly_to_point point line forward =
       end
     else v
 
-module Synthesis = struct
-
-  (* Returns a structure representing "let _ = (??)" *)
-
-  let empty_let_structure =
-    let pure_def = 
-      let open Ast_helper in
-      let loc_start = Lexing.{
-          pos_fname= "file";
-          pos_lnum= 0;
-          pos_bol= 0;
-          pos_cnum= 0;
-        } in
-      [Str.value
-         ~loc:(Location.{
-             loc_start;
-             loc_end=loc_start;
-             loc_ghost=false;
-           })
-         Asttypes.Nonrecursive
-         [
-           Vb.mk (Pat.any ())
-             (Exp.ident Location.{txt=(Longident.Lident "??");
-                                  loc=(!default_loc)} )
-         ]
-      ] in
-    let str = Pprintast.string_of_structure pure_def in
-    let sized_def =
-      let buf = Lexing.from_string ~with_positions:true str in
-      Parse.implementation buf  in
-    (List.hd_exn sized_def,str)
-
-  let insert_let_def indent (MkLocation (current,parent))  =
-    let (let+) x f = Option.bind ~f x in
-    match parent with
-    | Top -> None
-    | Node {below; parent; above; bounds} ->
-      (* range of the current item *)
-      let current_range = t_to_bounds current in
-      let editing_pos = snd (TextRegion.to_bounds current_range) in
-      (* position of the start of the empty structure *)
-      let shift_from_start =
-        TextRegion.to_shift_from_start current_range
-        |> TextRegion.Diff.add_newline_with_indent ~indent:0
-        |> TextRegion.Diff.add_newline_with_indent ~indent in
-
-      let empty_let_structure,text =
-        (* update the structure to be positioned at the right location *)
-        let (st,text) = empty_let_structure in
-        let mapper =  TextRegion.ast_bounds_mapper ~diff:shift_from_start  in
-        Structure_item (mapper.structure_item mapper st), text in
-      (* calculate the diff after inserting the item *)
-      let+ diff =
-        empty_let_structure
-        |> t_to_bounds
-        |> TextRegion.to_diff
-        (* we're inserting rather than deleting *)
-        |> Option.map ~f:TextRegion.Diff.negate 
-        (* newline after end of current element *)
-        |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) 
-        (* 1 more newline and then offset *)
-        |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent) 
-        (* newline after end of inserted element *)
-        |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) in
-      let update_bounds = update_bounds ~diff in
-      let update_meta_bound bounds = 
-        match bounds with
-          None -> None
-        | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
-      in
-      (* update parent *)
-      let rec update_parent parent = match parent with
-        | Top -> Top
-        | Node {below;parent;above; bounds} ->
-          let above = List.map ~f:update_bounds above in
-          let bounds = update_meta_bound bounds in
-          let parent = update_parent parent in 
-          Node {below; parent; above; bounds} in
-      let parent = update_parent parent in
-      let above = List.map ~f:update_bounds above in
-      let bounds = update_meta_bound bounds in
-      let parent = Node {below=current::below; parent; above; bounds} in
-      Some (MkLocation (empty_let_structure,parent), (text,editing_pos))
-
-end
 
 let insert_element (MkLocation (current,parent)) (element: t)  =
   let (let+) x f = Option.bind ~f x in
@@ -1516,10 +1439,6 @@ let insert_element (MkLocation (current,parent)) (element: t)  =
     let bounds = update_meta_bound bounds in
     let parent = Node {below=current::below; parent; above; bounds} in
     Some (MkLocation (element,parent), editing_pos)
-
-
-let describe_current_item  (MkLocation (current,_)) =
-  Ecaml.message (to_string current)
 
 let go_up (MkLocation (current,parent)) =
   match parent with
@@ -1642,7 +1561,19 @@ let move_up (MkLocation (current,parent) as loc)  =
     | Top -> None
     | Node _ ->
       let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
-      let+ loc = go_up loc in
+      let+ loc =
+        let rec loop loc =
+          match loc with
+          | None -> None
+          | Some loc ->
+            Ecaml.message (Printf.sprintf "current item: %s\n\tis_toplevel %b\n"
+                             (describe_current_item loc)
+                             (zipper_is_top_level loc)
+                          );
+            if not (zipper_is_top_level loc) then
+              loop (go_up  loc)
+            else Some (loc) in 
+        loop (Some loc) in
       let+ loc = go_left loc in
       let+ (loc,insert_pos) = insert_element loc current in
       Some (loc, insert_pos, TextRegion.to_bounds bounds)

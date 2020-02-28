@@ -1065,14 +1065,3 @@ let zipper_move_down ?current_buffer ~zipper_var ()  =
        ))
     )
 
-(** inserts a let def using the zipper, returning the text to insert,
-    and the point at which to insert it *)
-let zipper_insert_let_def ?current_buffer ~zipper_var column_number ()  =
-  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
-  retrieve_zipper ~current_buffer ~zipper_var
-  |> Option.bind ~f:(Ast_zipper.Synthesis.insert_let_def column_number)
-  |> Option.map ~f:(fun (zipper,(string,pos)) ->
-      Buffer_local.set zipper_var (Some zipper) current_buffer;
-      (string, Position.of_int_exn (pos + 1))
-    )
-

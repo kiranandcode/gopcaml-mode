@@ -18,7 +18,7 @@ module Variables = struct
       ~default_value:(None)
       ()
 
-let zipper_var = Buffer_local.defvar
+  let zipper_var = Buffer_local.defvar
       ("gopcaml-zipper" |> Symbol.intern)
       [%here]
       ~docstring:{|
@@ -299,7 +299,7 @@ let define_functions () =
   defun
     ("gopcaml-zipper-move-elem-down" |> Symbol.intern)
     [%here]
-    ~docstring:{| Moves the current element up and returns the bounds to transform. |}
+    ~docstring:{| Moves the current element down and returns the bounds to transform. |}
     (Returns (Value.Type.option (Value.Type.list Position.type_)))
     (let open Defun.Let_syntax in
      let%map_open op =
@@ -375,15 +375,6 @@ let define_functions () =
      and op = return @@  Gopcaml_state.find_nearest_defun_end ~state_var:Variables.state_var in
      op point line);
   defun
-    ("gopcaml-zipper-insert-let-def-start" |> Symbol.intern)
-    [%here]
-    ~docstring:{| Uses the zipper to insert a let-def. |}
-    (Returns (Value.Type.option (Value.Type.tuple Value.Type.string Position.type_)))
-    (let open Defun.Let_syntax in
-     let%map_open column_no = required "point" Value.Type.int  in
-     let op = Gopcaml_state.zipper_insert_let_def ~zipper_var:Variables.zipper_var column_no in
-     op ());
-  defun
     ("gopcaml-is-inside-let-def" |> Symbol.intern)
     [%here]
     ~docstring:{| Determines whether the current item is inside a let-def. |}
@@ -416,6 +407,6 @@ let gopcaml_mode =
 
 (* Finally, provide the gopcaml symbol  *)
 let () =
-  provide ("gopcaml" |> Symbol.intern)   
+  provide ("gopcaml" |> Symbol.intern)
 
 

@@ -197,16 +197,14 @@ removes all existing overlays of type GROUP if present."
 		       gopcaml-zipper-mode-map
 		     gopcaml-selection-zipper-mode-map)
 		   t #'gopcaml-on-exit-zipper-mode)
-		  (if  selection-mode
-		      ;; (funcall operation t)
-		      (cond
-		       ((equal direction 'forward)
-			(goto-char end)
-			)
-		       ((equal direction 'backward)
-			(goto-char start)
-			))
+		  ;; (funcall operation t)
+		  (cond
+		   ((equal direction 'forward)
+		    (goto-char end)
 		    )
+		   ((equal direction 'backward)
+		    (goto-char start)
+		    ))
 		  )
 	      (gopcaml-delete-zipper)
 	      nil
@@ -214,6 +212,67 @@ removes all existing overlays of type GROUP if present."
       ;; otherwise just perfom operation
       (funcall operation nil)
       )))
+
+(defun gopcaml-zipper-mark-mode ()
+  "Start gopcaml-zipper mark mode."
+  (interactive)
+  (let ((starting-pos (point))
+	(selection-active (and transient-mark-mode mark-active)))
+    ;;  if not already in zipper mode
+    (if (not gopcaml-zipper)
+	;; build zipper aronud point
+	(progn
+	  (skip-chars-forward " \n\t")
+
+	  (let ((area
+		 (car (gopcaml-build-zipper
+			       (point)
+			       (line-number-at-pos))))
+		start end overlay)
+	    ;; if successfull then perform operation
+	    (if area
+		(progn
+		  (setq start (car area))
+		  (setq end (cadr area))
+		  (setq overlay (make-overlay start end))
+		  (overlay-put overlay 'gopcaml-kind 'zipper)
+		  (setq gopcaml-zipper-overlay overlay)
+		  (set-transient-map
+		   gopcaml-mark-zipper-mode-map
+		   t #'gopcaml-on-exit-zipper-mode)
+		  ;; (funcall operation t)
+		  (if (and transient-mark-mode (region-active-p))
+		      (progn
+			(save-excursion
+			  (goto-char (max end (region-end)))
+			  (set-mark (point))
+			  (activate-mark))
+			(goto-char (min start (region-start))))
+		    (progn
+		      (save-excursion
+			(goto-char end)
+			(set-mark (point))
+			(activate-mark))
+		      (goto-char (min start starting-pos))))
+		  )
+	      (gopcaml-delete-zipper)
+	      )))
+      ;; otherwise just perfom operation
+      (let ((area (car (gopcaml-move-zipper-up))))
+	(if area
+	    (progn
+	      (setq start (car area))
+	      (setq end (cadr area))
+	      (move-overlay gopcaml-zipper-overlay start end)
+	      ;; (funcall operation t)
+	      (save-excursion
+		(goto-char (max end (region-end)))
+		(set-mark (point))
+		(activate-mark))
+	      (goto-char (min start (region-beginning)))
+	      )
+	  )
+	))))
 
 (defun gopcaml-beginning-defun ()
   "Move backwards to the beginning of the defun."
@@ -484,7 +543,8 @@ removes all existing overlays of type GROUP if present."
   (interactive)
   (let (area insert-pos start end text)
     (setq area (car (funcall move-fn)))
-    (setq insert-pos (car area))
+    (when area
+          (setq insert-pos (car area))
     (setq start (cadr area))
     (setq end (caddr area))
     (setq text (buffer-substring-no-properties start end))
@@ -496,6 +556,7 @@ removes all existing overlays of type GROUP if present."
     (setq area (car (gopcaml-retrieve-zipper-bounds)))
     (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
     (goto-char (car area))
+      )
     ))
 
 (defun gopcaml-zipper-move-up ()
@@ -733,6 +794,13 @@ or whether a smart-parens based operation is more suitable."
     gopcaml-map)
   "Map used when in zipper mode for selections.  ari ari!")
 
+(defvar gopcaml-mark-zipper-mode-map
+  (let ((gopcaml-map (make-sparse-keymap)))
+    (define-key gopcaml-map (kbd "M-@")
+      '(menu-item "" gopcaml-zipper-mark-mode))
+    gopcaml-map)
+  "Map used when in zipper mode for marking expressions.  ari ari!")
+
 (defun gopcaml-on-exit-zipper-mode ()
   "Exit gopcaml-zipper-mode."
   (gopcaml-delete-zipper)
@@ -815,6 +883,9 @@ END is the end of the edited text region."
 							   :filter gopcaml-state-sexp-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
 							   :filter gopcaml-state-sexp-filter))
+  (define-key gopcaml-mode-map (kbd "M-@")
+    '(menu-item "" gopcaml-zipper-mark-mode
+		:filter gopcaml-state-filter))
   (setq-local forward-sexp-function nil)
   (add-hook 'after-change-functions #'gopcaml-update-dirty-region)
   (add-hook 'before-change-functions #'gopcaml-before-change-remove-type-hole)
