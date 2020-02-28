@@ -936,6 +936,11 @@ let retrieve_zipper_bounds ?current_buffer ~zipper_var () =
   retrieve_zipper ?current_buffer ~zipper_var
   |>  abstract_zipper_to_bounds
 
+(** checks whether the current zipper item is a top-level item *)
+let check_zipper_toplevel ?current_buffer ~zipper_var () =
+  retrieve_zipper ?current_buffer ~zipper_var
+  |> Option.map ~f:(Ast_zipper.zipper_is_top_level)
+
 (** attempts to move the current zipper left *)
 let move_zipper_left ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -951,10 +956,6 @@ let move_zipper_left ?current_buffer ~zipper_var () =
 (** attempts to move the current zipper left *)
 let ensure_zipper_space ?current_buffer ~zipper_var (pre_column,pre_line) (post_column,post_line) () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
-  Ecaml.message (Printf.sprintf "called with (%d,%d) (%d,%d)"
-                   pre_column pre_line
-                   post_column post_line
-                );
   retrieve_zipper ~current_buffer ~zipper_var
   |> Option.bind ~f:(fun zipper -> Ast_zipper.update_zipper_space_bounds zipper
                        (pre_column,pre_line) (post_column,post_line))

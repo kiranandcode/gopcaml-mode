@@ -269,6 +269,16 @@ let define_functions () =
      |> Option.map ~f:(fun (a,(b,c)) -> [a; b; c])
     );
   defun
+    ("gopcaml-zipper-is-top-level" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Checks whether the item under the zipper is a top-level item. |}
+    (Returns (Value.Type.option Value.Type.bool))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.check_zipper_toplevel ~zipper_var:Variables.zipper_var in
+     op ()
+    );
+  defun
     ("gopcaml-zipper-space-update" |> Symbol.intern)
     [%here]
     ~docstring:{| Updates the space aroound the current item. |}
@@ -382,8 +392,6 @@ let define_functions () =
      let%map_open point = required "point" Value.Type.int  in
      let op = Gopcaml_state.inside_defun ~state_var:Variables.state_var in
      op point)
-
-
 
 let gopcaml_mode =
   let sym = ("gopcaml-mode" |> Symbol.intern) in

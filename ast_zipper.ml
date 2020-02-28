@@ -1285,6 +1285,10 @@ let is_top_level  = function
     true
   | _ -> false
 
+let zipper_is_top_level (MkLocation (current,_))  =
+  is_top_level current
+
+
 
 (** moves the location to the nearest structure item enclosing or around it   *)
 let rec move_zipper_broadly_to_point point line forward =

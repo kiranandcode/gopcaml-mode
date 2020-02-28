@@ -6,6 +6,7 @@
 		   "./_build/default/gopcaml.so"
 		   (string-trim
 		    (shell-command-to-string (format "dirname %s" file)))))
+(require 'smartparens)
 
 (defgroup gopcaml-faces nil
   "Faces for gopcaml mode."
@@ -151,8 +152,6 @@ removes all existing overlays of type GROUP if present."
 	      nil))))
       nil)))
 
-
-
 (defun gopcaml-zipper-mode-and-move (operation &optional zipper-constructor selection-mode direction)
   "Start gopcaml-zipper mode using ZIPPER-CONSTRUCTOR and perform OPERATION."
   (interactive)
@@ -199,9 +198,16 @@ removes all existing overlays of type GROUP if present."
 		     gopcaml-selection-zipper-mode-map)
 		   t #'gopcaml-on-exit-zipper-mode)
 		  (if  selection-mode
-		      (funcall operation t)
-		    (goto-char start)
-		    ))
+		      ;; (funcall operation t)
+		      (cond
+		       ((equal direction 'forward)
+			(goto-char end)
+			)
+		       ((equal direction 'backward)
+			(goto-char start)
+			))
+		    )
+		  )
 	      (gopcaml-delete-zipper)
 	      nil
 	      )))
@@ -342,15 +348,15 @@ removes all existing overlays of type GROUP if present."
 
 (defun gopcaml-forward-sexp (&optional arg)
   "Move the zipper down (from expression at point)."
-  (interactive) (gopcaml-forward-sexp-full nil arg))
+  (interactive "p") (gopcaml-forward-sexp-full nil arg))
 
 (defun gopcaml-forward-sexp-selection (&optional arg)
   "Move the zipper down (from expression at point)."
-  (interactive) (gopcaml-forward-sexp-full t arg))
+  (interactive "p") (gopcaml-forward-sexp-full t arg))
 
 (defun gopcaml-backward-sexp-full (selection-mode &optional arg)
-  (interactive)
   "Move the zipper backwards (from expression at point) in SELECTION-MODE."
+  (interactive "p")
   (gopcaml-zipper-mode-and-move (lambda (initial) (move-gopcaml-zipper
 						   #'gopcaml-move-zipper-left
 						   'backward
@@ -361,11 +367,12 @@ removes all existing overlays of type GROUP if present."
 
 (defun gopcaml-backward-sexp (&optional arg)
   "Move the zipper dow (from expression at point)."
-  (interactive) (gopcaml-backward-sexp-full nil arg))
+  (interactive "p")
+  (gopcaml-backward-sexp-full nil arg))
 
 (defun gopcaml-backward-sexp-selection (&optional arg)
   "Move the zipper down (from expression at point)."
-  (interactive) (gopcaml-backward-sexp-full t arg))
+  (interactive "p") (gopcaml-backward-sexp-full t arg))
 
 (defun gopcaml-ensure-space-between-backward ()
   "Ensures space between points."
@@ -409,7 +416,9 @@ removes all existing overlays of type GROUP if present."
 
 (defun gopcaml-zipper-ensure-space ()
   "Ensures-spacing between current element."
-  (let
+  (message "%s" (car (gopcaml-zipper-is-top-level)))
+  (if (car (gopcaml-zipper-is-top-level))
+        (let
       ((area (car (gopcaml-retrieve-zipper-bounds)))
        start end
        pre-change
@@ -435,7 +444,8 @@ removes all existing overlays of type GROUP if present."
 		       (car post-change) (cadr post-change))))
       (when area
 	(move-overlay gopcaml-zipper-overlay (car area) (cadr area))
-	t))))
+	t)))
+    nil))
 
 (defun gopcaml-zipper-type ()
   "Type region enclosed by zipper."
@@ -632,6 +642,25 @@ removes all existing overlays of type GROUP if present."
   "Determines whether a CMD can be carried out in current Gopcaml mode state."
   (when (and gopcaml-state(gopcaml-state-available-filter))
     cmd))
+(defun gopcaml-state-sexp-filter (cmd)
+  "Determines whether a CMD can be carried out in current Gopcaml mode state
+or whether a smart-parens based operation is more suitable."
+  (cond
+   ;; if we're looking at a opening or closing parens - smart parens
+   ;; is better
+   ((or
+     (save-match-data
+      (sp--looking-back (sp--get-closing-regexp
+			 (sp--get-pair-list-context 'navigate))))
+     (save-match-data
+      (sp--looking-at (sp--get-opening-regexp
+		       (sp--get-pair-list-context 'navigate))))
+     ) nil)
+   ((and gopcaml-state (gopcaml-state-available-filter))
+    cmd
+    )
+   )
+  )
 
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
@@ -769,9 +798,9 @@ END is the end of the edited text region."
   (define-key gopcaml-mode-map (kbd "C-M-p") '(menu-item "" gopcaml-backward-list
 							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-f") '(menu-item "" gopcaml-forward-sexp
-							 :filter gopcaml-state-filter))
+							 :filter gopcaml-state-sexp-filter))
   (define-key gopcaml-mode-map (kbd "C-M-b") '(menu-item "" gopcaml-backward-sexp
-							 :filter gopcaml-state-filter))
+							 :filter gopcaml-state-sexp-filter))
   (define-key gopcaml-mode-map (kbd "C-M-t") '(menu-item "" gopcaml-zipper-transpose
 							 :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-u") '(menu-item "" gopcaml-backward-up-list-selection
@@ -783,9 +812,9 @@ END is the end of the edited text region."
   (define-key gopcaml-mode-map (kbd "C-M-S-p") '(menu-item "" gopcaml-backward-list-selection
 							   :filter gopcaml-state-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-f") '(menu-item "" gopcaml-forward-sexp-selection
-							   :filter gopcaml-state-filter))
+							   :filter gopcaml-state-sexp-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
-							   :filter gopcaml-state-filter))
+							   :filter gopcaml-state-sexp-filter))
   (setq-local forward-sexp-function nil)
   (add-hook 'after-change-functions #'gopcaml-update-dirty-region)
   (add-hook 'before-change-functions #'gopcaml-before-change-remove-type-hole)
