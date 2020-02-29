@@ -219,6 +219,7 @@ removes all existing overlays of type GROUP if present."
   (let ((starting-pos (point))
 	(selection-active (and transient-mark-mode mark-active)))
     ;;  if not already in zipper mode
+    (if selection-active (setq starting-pos (min (mark) (region-end) (region-beginning) starting-pos)))
     (if (not gopcaml-zipper)
 	;; build zipper aronud point
 	(progn
@@ -241,13 +242,13 @@ removes all existing overlays of type GROUP if present."
 		   gopcaml-mark-zipper-mode-map
 		   t #'gopcaml-on-exit-zipper-mode)
 		  ;; (funcall operation t)
-		  (if (and transient-mark-mode (region-active-p))
+		  (if selection-active
 		      (progn
 			(save-excursion
 			  (goto-char (max end (region-end)))
-			  (set-mark (point))
+			  (push-mark (point))
 			  (activate-mark))
-			(goto-char (min start (region-start))))
+			(goto-char (min start starting-pos)))
 		    (progn
 		      (save-excursion
 			(goto-char end)
@@ -796,8 +797,12 @@ or whether a smart-parens based operation is more suitable."
 
 (defvar gopcaml-mark-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
-    (define-key gopcaml-map (kbd "M-@")
-      '(menu-item "" gopcaml-zipper-mark-mode))
+    (define-key gopcaml-map
+      (kbd "C-M-@")
+      #'gopcaml-zipper-mark-mode)
+    (define-key gopcaml-map
+      (kbd "C-M-SPC")
+      #'gopcaml-zipper-mark-mode)
     gopcaml-map)
   "Map used when in zipper mode for marking expressions.  ari ari!")
 
@@ -883,7 +888,10 @@ END is the end of the edited text region."
 							   :filter gopcaml-state-sexp-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
 							   :filter gopcaml-state-sexp-filter))
-  (define-key gopcaml-mode-map (kbd "M-@")
+  (define-key gopcaml-mode-map (kbd "C-M-@")
+    '(menu-item "" gopcaml-zipper-mark-mode
+		:filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-M-SPC")
     '(menu-item "" gopcaml-zipper-mark-mode
 		:filter gopcaml-state-filter))
   (setq-local forward-sexp-function nil)
