@@ -249,6 +249,19 @@ type unwrapped_type =
   | ModuleUnpack                  (* let module X = _ (val X) _ *)
   | LetBinding                    (* _ let P1 = E1 in E2 _ *)
   | ValueBinding                  (* _ let P1 = E1 _ *)
+  | ClassOpen                     (* _ let open E in CS _ *)
+  | ClassInherit                  (* _ inherit CE _ *)
+  | ClassSignature                (* _ object ... end  _  *)
+  | ClassStructure                (* _ object ... end  _  *)
+  | ClassConstraint               (* _ constraint T1 = T2 _  *)
+  | ClassType                     (* _ class s = object ... end _  *)
+  | ClassArrow                    (* _ T -> CT _ *)
+  | MethodType                    (* _ method x : T _ *)
+  | MethodDeclaration             (* _ method x = E _ *)
+  | ClassInitializer              (* _ initializer E _ *)
+  | ClassField                    (* _ [@@ A] _  *)
+  | ClassTypeField                (* _ [@@ A ] _ *)
+  | ValueDeclaration              (* _ val x : t _ *)
   | ModuleList
   | ModuleSubst
   | ModuleOpen
@@ -278,9 +291,11 @@ type unwrapped_type =
   | Send                          (* _ E1 # m _ *)
   | New                           (* _ new M.c _ *)
   | AssignField                   (* x <- 2 *)
-  | Override
+  | Override                      (* _ <E1, .. E2> _ *)
   | LetModule                     (* _ let module M = x in E _*)
   | LetModuleBinding              (* _ M = X _ *)
+  | ClassConstructor              (* _ c [ 'a, .... 'a] _ *)
+  | ClassObject                   (* _ object ... end _ *)
   | LetException
   | LabelDeclaration
   | Assert
@@ -813,12 +828,6 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
         | Sequence (Some (_,Lambda), [], h, t)  -> h :: t
         | Sequence (Some (_,Constraint), [], h, t)  -> h :: t
         (* intermediate *)
-        (* | Sequence (Some (_,LetModule), [], h, t)  -> h :: t
-         * | Sequence (Some (_,LetBinding), [], h, t)  -> h :: t
-         * | Sequence (Some (_,BindingOp), [], h, t)  -> h:: t
-         * | Sequence (Some (_,Seq), [], h, t)  -> h:: t
-         * | Sequence (Some (_,LetOp), [], h, t)  -> h:: t
-         * | Sequence (Some (_,Extension), [], h, t)  -> h:: t *)
         | _ -> [Expression expr]
       in
       dflt @ pat @ expr in 
@@ -999,9 +1008,197 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
     end
   | Parsetree.Pexp_extension ext ->
     unwrap_extensions ext
+  | Parsetree.Pexp_object cs ->
+    let bounds = Some (range, ClassObject) in
+    let cs = unwrap_class_structure cs in
+    Sequence (bounds, [], cs, [])
   | _ -> Expression expr
-(* | Parsetree.Pexp_object _ -> (??) *)
 (* | Parsetree.Pexp_unreachable -> (??) *)
+and unwrap_class_structure ({ pcstr_self; pcstr_fields }:Parsetree.class_structure) =
+  let pat = Pattern pcstr_self in
+  let fields = List.map ~f:unwrap_class_fields pcstr_fields in
+  let range =
+    let sequence = Sequence (None, [], pat, fields)  in
+    t_to_bounds sequence
+  in
+  let bounds = Some (range, ClassStructure) in
+  Sequence (bounds, [], pat, fields)
+and unwrap_class_fields ({ pcf_desc; pcf_loc; _ (* pcf_loc; pcf_attributes *) }:Parsetree.class_field) =
+  let range = TextRegion.of_location pcf_loc in 
+  match pcf_desc with
+  | Parsetree.Pcf_inherit (_, c_e, name) ->
+    let c_e = unwrap_class_expr c_e in
+    let name = Option.map ~f:unwrap_loc name |> Option.to_list in
+    Sequence (Some (range, ClassInherit), [], c_e, name)
+  | Parsetree.Pcf_val (name, _, cfk) ->
+    let name = unwrap_loc name in
+    let cf = unwrap_class_field_kind cfk in
+    Sequence (Some (range, ValueDeclaration), [], name, [cf])
+  | Parsetree.Pcf_method (name, _, cfk) ->
+    let name = unwrap_loc name in
+    let cfk = unwrap_class_field_kind cfk in
+    let bounds = Some (range, MethodDeclaration) in
+    Sequence (bounds, [], name, [cfk])
+  | Parsetree.Pcf_constraint (c1,c2) ->
+    let c1 = CoreType c1 in 
+    let c2 = CoreType c2 in 
+    let bounds = Some (range, ClassConstraint) in
+    Sequence (bounds, [], c1, [c2])
+  | Parsetree.Pcf_initializer expr ->
+    let expr = Expression expr in
+    let bounds = Some (range, ClassInitializer) in
+    Sequence (bounds, [], expr, [])
+  | Parsetree.Pcf_attribute attr ->
+    let attr = Attribute attr in
+    let bounds = Some (range, ClassField) in
+    Sequence (bounds, [], attr, [])
+  | Parsetree.Pcf_extension ext -> 
+    let ext = unwrap_extensions ext in
+    let bounds = Some (range, ClassField) in
+    Sequence (bounds, [], ext, [])
+and unwrap_class_field_kind (cfk: Parsetree.class_field_kind) =
+  match cfk with
+  | Parsetree.Cfk_virtual ct -> CoreType ct
+  | Parsetree.Cfk_concrete (_, expr) -> unwrap_expr expr
+and unwrap_class_expr ({ pcl_desc;  pcl_loc=loc; _ }: Parsetree.class_expr) =
+  let range = TextRegion.of_location loc in
+  match pcl_desc with
+  | Parsetree.Pcl_constr (name, types) ->
+    let loc = unwrap_loc name in 
+    let types = List.map ~f:(fun ct -> CoreType ct) types in
+    let bounds = Some (range, ClassConstructor) in 
+    Sequence (bounds, [], loc, types)
+  | Parsetree.Pcl_structure cs ->
+    let class_structure = unwrap_class_structure cs in 
+    let bounds = Some (range, ClassObject) in
+    Sequence (bounds, [], class_structure, [])
+  | Parsetree.Pcl_fun (_, oex1, pat, c_exp) ->
+    let oex1 = Option.map ~f:(fun e -> Expression e) oex1 |> Option.to_list in
+    let pat = Pattern pat in
+    let c_exp = match unwrap_class_expr c_exp with
+      | Sequence (Some (_, Lambda), [], h, t) -> h :: t
+      | Sequence (Some (_, Constraint), [], h, t) -> h :: t
+      | v -> [v] in 
+    let items = oex1 @ pat :: c_exp |> t_sort in
+    begin
+          match items with
+            | [] -> assert false
+            | h :: t -> Sequence (Some (range, Lambda), [], h, t)
+    end
+  | Parsetree.Pcl_apply (expr, elems) ->
+    let expr = unwrap_class_expr expr in
+    let elems = List.map ~f:(fun (_,e) -> Expression e) elems in
+    let bounds  = Some (range, Apply) in
+    let items = t_sort (expr :: elems) in 
+    begin
+      match items with
+      | [] -> assert false
+      | h :: t -> Sequence (bounds, [], h, t)
+    end
+  | Parsetree.Pcl_let (_, vbs, expr) -> 
+    let vbs = List.map ~f:(fun vb -> Value_binding vb) vbs in
+    let expr,t = match unwrap_class_expr expr with
+      | Sequence (Some (_,LetBinding), [], h, t)  -> h, t
+      | Sequence (Some (_,LetModule), [], h, t)  -> h, t
+      | Sequence (Some (_,BindingOp), [], h, t)  -> h, t
+      | Sequence (Some (_,Seq), [], h, t)  -> h, t
+      | Sequence (Some (_,LetOp), [], h, t)  -> h, t
+      | Sequence (Some (_,Extension), [], h, t)  -> h, t
+      | e -> e,[] in
+    let bounds = Some (range, LetBinding) in
+    begin
+      match vbs with
+      | v :: vbs -> Sequence (bounds, [], v, vbs @ expr :: t)
+      | [] -> Sequence (bounds, [], expr, t)
+    end 
+  | Parsetree.Pcl_constraint (exp, coretype) -> 
+    let expr = unwrap_class_expr exp in
+    let coretype = unwrap_class_type coretype in
+    let bounds = Some (range, Constraint) in
+    Sequence (bounds, [], coretype, [expr])
+  | Parsetree.Pcl_extension ext ->
+    let ext = unwrap_extensions ext in
+    Sequence (Some (range, Extension), [], ext, [])
+  | Parsetree.Pcl_open (op, cexp) ->
+    let op = unwrap_open_desc op in
+    let cexp = unwrap_class_expr cexp in
+    let bounds = Some (range, ClassOpen) in
+    Sequence (bounds, [], op, [cexp])
+and unwrap_open_desc ({ popen_expr; (* popen_override; *) 
+                        _  }: Parsetree.open_description) =
+  let loc = unwrap_loc popen_expr in
+  let range =
+    let sequence = Sequence (None, [], loc, [])  in
+    t_to_bounds sequence in
+  let bounds = Some (range, ModuleOpen) in
+  Sequence (bounds, [], loc, [])
+and unwrap_class_type ({ pcty_desc; pcty_loc; _ }: Parsetree.class_type) =
+  let range = TextRegion.of_location pcty_loc in 
+  match pcty_desc with
+  | Parsetree.Pcty_constr (name, types) -> 
+    let loc = unwrap_loc name in 
+    let types = List.map ~f:(fun ct -> CoreType ct) types in
+    let bounds = Some (range, ClassConstructor) in 
+    Sequence (bounds, [], loc, types)
+  | Parsetree.Pcty_signature cs ->
+    let cs = unwrap_class_signature cs in
+    let bounds = Some (range, ClassType) in
+    Sequence (bounds, [], cs, [])
+  | Parsetree.Pcty_arrow (_, ty, cs) ->
+    let ty = CoreType ty in
+    let expr = match unwrap_class_type cs with
+      | Sequence (Some (_, ClassArrow), [], h, t) -> h :: t
+      | v -> [v] in
+    let bounds = Some (range, ClassArrow) in
+    Sequence (bounds, [], ty, expr)
+  | Parsetree.Pcty_extension ext ->
+    let ext = unwrap_extensions ext in
+    let bounds = Some (range, ClassType) in
+    Sequence (bounds, [], ext, [])
+  | Parsetree.Pcty_open (od, ct) ->
+    let od = unwrap_open_desc od in
+    let ct = unwrap_class_type ct in
+    let bounds = Some (range, ClassOpen) in
+    Sequence (bounds, [], od, [ct])
+and unwrap_class_signature ({ pcsig_self; pcsig_fields }: Parsetree.class_signature) =
+  let ct = CoreType pcsig_self in
+  let fields = List.map ~f:unwrap_class_field_type pcsig_fields in
+  let range =
+    let sequence = Sequence (None, [], ct, fields) in
+    t_to_bounds sequence
+  in
+  let bounds = Some (range, ClassSignature) in
+  Sequence (bounds, [], ct, fields)
+and unwrap_class_field_type ({ pctf_desc; pctf_loc; _ }: Parsetree.class_type_field) =
+  let range = TextRegion.of_location pctf_loc in
+  match pctf_desc with
+  | Parsetree.Pctf_inherit ct ->
+    let ct = unwrap_class_type ct in
+    let bounds = Some (range, ClassInherit) in
+    Sequence (bounds, [], ct, [])
+  | Parsetree.Pctf_val (name, _, _, ct) ->
+    let bounds = Some (range, ValueDeclaration) in
+    let loc = unwrap_loc name in 
+    let ct = CoreType ct in
+    Sequence (bounds, [], loc, [ct])
+  | Parsetree.Pctf_method (name, _, _, ct) ->
+    let bounds = Some (range, MethodType) in
+    let loc = unwrap_loc name in
+    let ct = CoreType ct in
+    Sequence (bounds, [], loc, [ct])
+  | Parsetree.Pctf_constraint (ct1,ct2) ->
+    let bounds = Some (range, ClassConstraint) in
+    let ct1 = CoreType ct1 in 
+    let ct2 = CoreType ct2 in
+    Sequence (bounds, [], ct1, [ct2])
+  | Parsetree.Pctf_attribute attr ->
+    let attr = Attribute attr in
+    let bounds = Some (range, ClassTypeField) in
+    Sequence (bounds, [], attr, [])
+  | Parsetree.Pctf_extension extension ->
+    let ext = unwrap_extensions extension in
+    let bounds = Some (range, ClassTypeField) in
+    Sequence (bounds, [], ext, [])
 and unwrap_module_binding ({ pmb_name=loc; pmb_expr; _ }: Parsetree.module_binding) =
   let loc  = unwrap_loc loc in
   let pmb_expr = unwrap_module_expr pmb_expr |> Option.to_list in
@@ -1128,7 +1325,7 @@ and t_descend ?range t =
         } ->
         let loc = unwrap_loc loc in 
         let ty = CoreType pval_type in
-        let bounds = Some (range, ValueBinding) in
+        let bounds = Some (range, ValueDeclaration) in
         Sequence (bounds, [], loc, [ty])
       | Parsetree.Pstr_type (_, t :: ts) ->
         let right = List.map ~f:(fun vb -> Type_declaration vb) ts in
