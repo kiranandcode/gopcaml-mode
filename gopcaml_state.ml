@@ -323,7 +323,7 @@ module State = struct
 
   module DirtyRegion = struct
     (** Tracks the ast - either clean, or dirty (and whether it has
-       been changed since last compile attempt) *)
+        been changed since last compile attempt) *)
     type t =
       | Clean of parse_tree
       | Dirty of (parse_tree option * bool) 
@@ -887,6 +887,30 @@ let find_nearest_defun ?current_buffer ~state_var point line =
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
+(** returns the point corresponding to the start of the nearest letdef (or respective thing in ocaml) *)
+let find_nearest_letdef ?current_buffer ~state_var point line =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_gopcaml_state ~current_buffer ~state_var ()
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0)
+                    )
+  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_int point) line false )
+  |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_letdef
+                        (Position.to_int point - 1)
+                        zipper)
+  |> Option.map ~f:(fun x -> x + 1)
+
+(** returns the point corresponding to the start of the nearest pattern (or respective thing in ocaml) *)
+let find_nearest_pattern ?current_buffer ~state_var point line =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_gopcaml_state ~current_buffer ~state_var ()
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0))
+  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_int point) line false )
+  |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_pattern
+                        (Position.to_int point - 1)
+                        zipper)
+  |> Option.map ~f:(fun x -> x + 1)
+
+
 (** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
 let find_nearest_defun_end ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
@@ -958,7 +982,7 @@ let ensure_zipper_space ?current_buffer ~zipper_var (pre_column,pre_line) (post_
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_zipper ~current_buffer ~zipper_var
   |> Option.bind ~f:(fun zipper -> Ast_zipper.update_zipper_space_bounds zipper
-                       (pre_column,pre_line) (post_column,post_line))
+                        (pre_column,pre_line) (post_column,post_line))
   |> Option.map ~f:(fun zipper ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper

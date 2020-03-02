@@ -260,6 +260,7 @@ type unwrapped_type =
   | ClassSignature                (* _ object ... end  _  *)
   | ClassStructure                (* _ object ... end  _  *)
   | ClassTypeDefinition           (* _ class s = object ... end _  *)
+  | ClassTypeDeclaration          (* _ class s = object ... end _  *) (* only has types*)
   | ClassDefinition               (* _ class s = object ... end _  *)
   | ClassTypeField                (* _ [@@ A ] _ *)
   | Coerce                        (* _ E1 : T1 :> T2 _ *)
@@ -704,8 +705,8 @@ and unwrap_case ({ pc_lhs; pc_guard; pc_rhs }: Parsetree.case) =
     match items with
     | h :: t ->
       let range =
-          let sequence = Sequence (None, [], h, t) in
-          t_to_bounds sequence
+        let sequence = Sequence (None, [], h, t) in
+        t_to_bounds sequence
       in
       let bounds = Some (range, Function) in 
       Some (Sequence (bounds, [], h, t))
@@ -749,12 +750,12 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
       match mexpr with
       | None -> loc
       | Some mexpr ->
-              let range =
-        let sequence = Sequence (None, [], loc, [mexpr]) in 
-        t_to_bounds sequence
-      in
-      let bounds = Some (range, LetModuleBinding) in 
-      Sequence (bounds, [], loc, [mexpr])
+        let range =
+          let sequence = Sequence (None, [], loc, [mexpr]) in 
+          t_to_bounds sequence
+        in
+        let bounds = Some (range, LetModuleBinding) in 
+        Sequence (bounds, [], loc, [mexpr])
     in 
     Sequence (bounds, [], modbind, expr)
   | Parsetree.Pexp_letexception (cons, expr) ->
@@ -791,11 +792,11 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
   | Parsetree.Pexp_newtype (loc, expr) ->
     let loc = unwrap_loc loc in
     let expr = match unwrap_expr expr with
-        | Sequence (Some (_,Lambda), [], h, t)  -> h :: t
-        | Sequence (Some (_,LambdaType), [], h, t)  -> h :: t
-        | Sequence (Some (_,Constraint), [], h, t)  -> h :: t
-        (* intermediate *)
-        | _ -> [Expression expr]
+      | Sequence (Some (_,Lambda), [], h, t)  -> h :: t
+      | Sequence (Some (_,LambdaType), [], h, t)  -> h :: t
+      | Sequence (Some (_,Constraint), [], h, t)  -> h :: t
+      (* intermediate *)
+      | _ -> [Expression expr]
     in
     let bounds = Some (range, LambdaType) in
     Sequence (bounds, [], loc, expr)
@@ -1058,9 +1059,9 @@ and unwrap_class_expr ({ pcl_desc;  pcl_loc=loc; _ }: Parsetree.class_expr) =
       | v -> [v] in 
     let items = oex1 @ pat :: c_exp |> t_sort in
     begin
-          match items with
-            | [] -> assert false
-            | h :: t -> Sequence (Some (range, Lambda), [], h, t)
+      match items with
+      | [] -> assert false
+      | h :: t -> Sequence (Some (range, Lambda), [], h, t)
     end
   | Parsetree.Pcl_apply (expr, elems) ->
     let expr = unwrap_class_expr expr in
@@ -1326,9 +1327,16 @@ and t_descend ?range t =
         let bounds = Some (range, TypeExtension) in
         (* TODO: may need sorting *)
         Sequence (bounds, [], name, params @ constructors)
-        (* type t1 += ... *)
+      (* type t1 += ... *)
+      | Parsetree.Psig_class_type (_ :: _ as cdls) ->
+        begin
+          match List.map ~f:(unwrap_class_type_declaration) cdls with
+        | [] -> assert false
+        | h :: t ->
+          let bounds = Some (range, ClassTypeDeclaration) in 
+          Sequence (bounds, [], h, t)
+        end
 
-      (* | Parsetree.Psig_class_type _ -> (??) *)
       | _ -> Signature_item si
     end
   | Structure_item ({ pstr_desc; _ } as si) -> begin match pstr_desc with
@@ -1576,9 +1584,14 @@ let rec move_zipper_to_point point line forward =
 let is_top_level  = function
   | Structure_item _ 
   | Signature_item _
-  | Sequence (Some (_, ModuleTypeDefinition), _, _ , _) 
-  | Sequence (Some (_, ModuleDefinition), _, _ , _) ->
-    true
+  | Sequence (None, _, _ , _) 
+  | Sequence (Some (_, ModuleSignature), _, _ , _) 
+  | Sequence (Some (_, ModuleStructure), _, _ , _) -> true
+  | _ -> false
+
+(** determines whether the current is a pattern *)
+let is_pattern  = function
+  | Pattern _ -> true
   | _ -> false
 
 
@@ -1591,6 +1604,12 @@ let zipper_is_top_level (MkLocation (current,_))  =
    *                  (to_string current)
    *               ); *)
   is_top_level current
+
+let zipper_is_pattern (MkLocation (current,_))  =
+  (* Ecaml.message (Printf.sprintf "current_item: %s\n"
+   *                  (to_string current)
+   *               ); *)
+  is_pattern current
 
 
 
@@ -1868,11 +1887,14 @@ let move_up (MkLocation (current,parent) as loc)  =
                           );
             if not (zipper_is_top_level loc) then
               loop (go_up  loc)
-            else Some (loc) in 
+            else (go_up loc) in 
         loop (Some loc) in
       let+ loc = go_left loc in
       let+ (loc,insert_pos) = insert_element loc current in
       Some (loc, insert_pos, TextRegion.to_bounds bounds)
+
+
+
 
 let move_down (MkLocation (current,_) as loc)  =
   if not (is_top_level current) then None else 
@@ -1953,7 +1975,6 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
 
 (** finds the item bounds for the nearest structure/signature (essentially defun) item  *)
 let find_nearest_definition_item_bounds point line forward zipper : _ option =
-  Ecaml.message "calling find_nearest definition to zipper";
   let zipper = move_zipper_broadly_to_point point line forward zipper in
   let rec loop zipper =
     let get_result pos_start pos_end =
@@ -1966,38 +1987,48 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
     match current with
     | Signature_item { psig_loc = { loc_start; loc_end; _ }; _ } 
     | Structure_item {  pstr_loc = { loc_start; loc_end; _ };_ } ->
-      Ecaml.message (Printf.sprintf "%s %d %d %d %b"
-                       "sig_item region found "
-                       loc_start.pos_cnum
-                       loc_end.pos_cnum
-                       point
-                       forward
-                    );
       get_result loc_start.pos_cnum loc_end.pos_cnum
     | Sequence (Some (bound,_), _,_,_) ->
       let start_column = TextRegion.column_start bound in
       let end_column = TextRegion.column_end bound in
-      Ecaml.message (Printf.sprintf "%s %d %d %d %b"
-                       "bounded sequence found "
-                       start_column
-                       end_column
-                       point
-                       forward
-                    );
       get_result start_column end_column
     | Sequence (None, _,_,_) ->
       let bound = (t_to_bounds current) in
       let start_column = (TextRegion.column_start bound) in
       let end_column = TextRegion.column_end bound in
-      Ecaml.message (Printf.sprintf "%s %d %d %d %b"
-                       "un bounded sequence found "
-                       start_column
-                       end_column
-                       point
-                       forward
-                    );
       get_result start_column end_column
     | _ ->  (go_up zipper) |> Option.bind ~f:loop
   in
   loop zipper
 
+
+(** returns the start point of the enclosing let def  *)
+let rec find_nearest_letdef point (MkLocation (current,_) as location) =
+  Ecaml.message (Printf.sprintf "Looking at %s" (to_string current));
+  match t_descend current with
+  | Sequence (Some (_, LetOp), _, _, _) 
+  | Sequence (Some (_, LetModuleBinding), _, _, _) 
+  | Sequence (Some (_, LetException), _, _, _) 
+  | Sequence (Some (_, LetBinding), _, _, _) 
+  | Sequence (Some (_, ValueBinding), _, _, _) 
+  | Value_binding _ ->
+    let bounds = t_to_bounds current |> TextRegion.column_start in
+    if Int.(bounds = point) then
+      go_left location |> Option.bind ~f:(find_nearest_letdef point)
+    else
+      Some (bounds)
+  | _ -> go_left location |> Option.bind ~f:(find_nearest_letdef point)
+
+(** finds the nearest enclosing wildcard  *)
+let rec find_nearest_pattern point (MkLocation (current,_) as loc)  =
+  Ecaml.message (Printf.sprintf "Looking at %s" (to_string current));
+  if is_pattern current then
+    begin
+      let bounds = t_to_bounds current |> TextRegion.column_start in
+      if not Int.(bounds = point) then Some point
+      else go_left loc |> Option.bind ~f:(find_nearest_pattern point)
+    end
+  else go_left loc |> Option.bind ~f:(find_nearest_pattern point)
+
+(* (\** finds scopes enclosing item  *\)
+ * let find_enclosing_scopes = (??) *)

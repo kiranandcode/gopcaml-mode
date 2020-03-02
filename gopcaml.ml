@@ -375,6 +375,26 @@ let define_functions () =
      and op = return @@  Gopcaml_state.find_nearest_defun_end ~state_var:Variables.state_var in
      op point line);
   defun
+    ("gopcaml-find-nearest-letdef" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Returns the start of the nearest letdef to POINT. |}
+    (Returns (Value.Type.option Value.Type.int))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" Position.type_
+     and line = required "line" Value.Type.int
+     and op = return @@  Gopcaml_state.find_nearest_letdef ~state_var:Variables.state_var in
+     op point line);
+  defun
+    ("gopcaml-find-nearest-pattern" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Returns the start of the nearest pattern to POINT. |}
+    (Returns (Value.Type.option Value.Type.int))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" Position.type_
+     and line = required "line" Value.Type.int
+     and op = return @@  Gopcaml_state.find_nearest_pattern ~state_var:Variables.state_var in
+     op point line);
+  defun
     ("gopcaml-is-inside-let-def" |> Symbol.intern)
     [%here]
     ~docstring:{| Determines whether the current item is inside a let-def. |}
