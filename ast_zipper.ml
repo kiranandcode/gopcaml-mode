@@ -1590,6 +1590,18 @@ let is_top_level  = function
   | Sequence (Some (_, ModuleStructure), _, _ , _) -> true
   | _ -> false
 
+(** determines whether the parent is a top-level item - i.e supports
+    inserting and removing other top level items freely *)
+let is_top_level_parent (z:zipper)  =
+  match z with
+  | Node { bounds=None; _ }
+  | Top -> true
+  | Node { bounds=Some(_,v); _ } ->
+    match v with
+    | ModuleSignature
+    | ModuleStructure -> true
+    | _ -> false
+
 (** determines whether the current is a pattern *)
 let is_pattern  = function
   | Pattern _ -> true
@@ -1872,7 +1884,7 @@ let update_zipper_space_bounds (MkLocation (current,parent))
 
 let move_up (MkLocation (current,parent) as loc)  =
   let (let+) x f = Option.bind ~f x in
-  if not (is_top_level current)
+  if not (is_top_level current) || not (is_top_level_parent parent)
   then
     (* we can only move top level structures up and down safely,
        so if not reject,  *)
@@ -1894,16 +1906,16 @@ let move_up (MkLocation (current,parent) as loc)  =
         let rec loop loc =
           match loc with
           | None -> None
-          | Some loc ->
+          | Some (MkLocation
+              (_, parent) as loc) ->
             Ecaml.message (Printf.sprintf "current item: %s\n\tis_toplevel %b\n"
                              (describe_current_item loc)
                              (zipper_is_top_level loc)
                           );
-            if not (zipper_is_top_level loc) then
-              loop (go_up  loc)
+            if not (is_top_level_parent parent) then
+              loop (go_up loc)
             else (go_up loc) in 
-        loop (go_up loc) in
-      let+ loc = go_down loc in
+        loop (Some loc) in
       let+ (loc,insert_pos) = insert_element loc current in
       Some (loc, insert_pos, TextRegion.to_bounds bounds)
 
