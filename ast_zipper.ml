@@ -352,7 +352,8 @@ let rec to_string = function
       | Some (_,s) -> show_unwrapped_type s
     in
     let items = List.map ~f:to_string (left @ current :: right)
-                |> String.concat ~sep:", " in 
+                |> String.concat ~sep:", " in
+    let items = if String.length items > 20 then (String.slice items 0 20) ^ "..." else items in 
     "Sequence of " ^ bound ^ " (" ^ items ^  ")"
   | EmptySequence (_, ty) -> "EmptySequence of " ^ (show_unwrapped_type ty)
 
@@ -1331,10 +1332,10 @@ and t_descend ?range t =
       | Parsetree.Psig_class_type (_ :: _ as cdls) ->
         begin
           match List.map ~f:(unwrap_class_type_declaration) cdls with
-        | [] -> assert false
-        | h :: t ->
-          let bounds = Some (range, ClassTypeDeclaration) in 
-          Sequence (bounds, [], h, t)
+          | [] -> assert false
+          | h :: t ->
+            let bounds = Some (range, ClassTypeDeclaration) in 
+            Sequence (bounds, [], h, t)
         end
 
       | _ -> Signature_item si
@@ -1596,7 +1597,7 @@ let is_pattern  = function
 
 
 let describe_current_item  (MkLocation (current,_)) =
-   (to_string current)
+  (to_string current)
 
 
 let zipper_is_top_level (MkLocation (current,_))  =
@@ -1871,11 +1872,24 @@ let update_zipper_space_bounds (MkLocation (current,parent))
 
 let move_up (MkLocation (current,parent) as loc)  =
   let (let+) x f = Option.bind ~f x in
-  if not (is_top_level current) then None else 
+  if not (is_top_level current)
+  then
+    (* we can only move top level structures up and down safely,
+       so if not reject,  *)
+    None
+  else 
     match parent with
-    | Top -> None
+    | Top ->
+      (* can't move up if no parent*)
+      None
     | Node _ ->
       let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
+      (*  first we go up once - this is the enclosing structure:
+          module S = struct _ ... _ end
+          ->
+          module S = _ struct  ...  end _
+      *)
+      let+ loc = go_up loc in
       let+ loc =
         let rec loop loc =
           match loc with
@@ -1888,8 +1902,8 @@ let move_up (MkLocation (current,parent) as loc)  =
             if not (zipper_is_top_level loc) then
               loop (go_up  loc)
             else (go_up loc) in 
-        loop (Some loc) in
-      let+ loc = go_left loc in
+        loop (go_up loc) in
+      let+ loc = go_down loc in
       let+ (loc,insert_pos) = insert_element loc current in
       Some (loc, insert_pos, TextRegion.to_bounds bounds)
 
@@ -2002,31 +2016,163 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
   loop zipper
 
 
-(** returns the start point of the enclosing let def  *)
-let rec find_nearest_letdef point (MkLocation (current,_) as location) =
+let split_last ls =
+  let rec loop ls acc =
+    match ls with
+    | [] ->
+      acc |> Option.map ~f:(fun (ls,it) -> List.rev ls, it)
+    | h :: t ->
+      let acc = match acc with
+        | None -> Some ([], h)
+        | Some (belast,last) ->
+          Some (last :: belast, h) in
+      loop t acc
+  in
+  loop ls None
+
+let go_end loc =
+  match loc with
+  | (MkLocation (current, (Node {bounds; below;parent;above})) as loc) -> 
+      begin
+        match split_last above with
+        | None -> loc
+        | Some (belast,last) ->
+           (
+            MkLocation (
+              last,
+              Node {
+                bounds;
+                parent;
+                below=(List.rev belast) @ current::below;
+                above=[];
+              }
+            )
+          )
+      end
+  | _ -> loc
+
+(** move across the tree in an enumerative way - i.e
+    move left, once at start, move up and move to end of upper section  *)
+let go_left_enumerative (MkLocation (current,parent) as loc) =
+  match parent with
+  | Node { bounds; below=l::left; parent; above } ->
+    Some (MkLocation (l, Node {below=left; parent; above=current::above; bounds}))
+  | _ ->
+    match go_up loc with
+    | None -> None
+    | Some (MkLocation (_, Top) as loc) -> Some loc
+    | Some loc -> Some (go_end loc)
+
+(** finds the nearest enclosing let def  *)
+let rec find_nearest_letdef point (MkLocation (current,parent) as loc)  =
   Ecaml.message (Printf.sprintf "Looking at %s" (to_string current));
-  match t_descend current with
-  | Sequence (Some (_, LetOp), _, _, _) 
-  | Sequence (Some (_, LetModuleBinding), _, _, _) 
-  | Sequence (Some (_, LetException), _, _, _) 
-  | Sequence (Some (_, LetBinding), _, _, _) 
-  | Sequence (Some (_, ValueBinding), _, _, _) 
-  | Value_binding _ ->
-    let bounds = t_to_bounds current |> TextRegion.column_start in
-    if Int.(bounds = point) then
-      go_left location |> Option.bind ~f:(find_nearest_letdef point)
-    else
-      Some (bounds)
-  | _ -> go_left location |> Option.bind ~f:(find_nearest_letdef point)
+  let is_vb parent = match parent with
+    | Node {bounds=Some (_,v); _} ->
+      begin
+        match v with
+        | ValueBinding -> true
+        | _ -> false
+      end
+    | _ -> false
+  in
+  let is_let_type v = begin
+    match v with
+    | Seq
+    | LetModuleBinding
+    | LetException
+    | LetBinding
+    | LetOp -> true
+    | _ -> false
+      end in 
+  let is_letdef_parent parent = match parent with
+    | Node {bounds=Some (_,v); _} -> is_let_type v
+    | _ -> false in
+  let is_vb_child current =
+    match  current with
+    | Value_binding _ -> true
+    | Sequence (Some (_, v), _, _, _) ->
+      begin
+        match v with
+        | ValueBinding -> true
+        | _ -> false
+      end
+    | _ -> false
+  in
+  let is_vb_parent parent =
+    match  parent with
+    | Node {bounds=Some(_,v); _ } ->
+      begin
+        match v with
+        | ValueBinding -> true
+        | _ -> false
+      end
+    | _ -> false
+  in
+  if is_vb parent && is_pattern current then
+    begin
+      let bounds = t_to_bounds current |> TextRegion.column_start in
+      (* if the point is at the start of a pattern, then continue suearch up *)
+      if not Int.(bounds = point) then
+        let result = begin
+          let items = match parent with
+            | Node {below=_::_ as l; _} -> current :: l
+            | _ -> [current]
+          in
+          let items = List.take_while ~f:is_pattern items in
+          let items = List.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_start) items in 
+          List.last items
+        end in
+        match result with
+        | Some _ -> result
+        | None -> go_left loc |> Option.bind ~f:(find_nearest_letdef point)
+      else
+        begin
+          if is_vb_parent parent then
+            go_up loc |> Option.bind ~f:(go_left) |> Option.bind ~f:(find_nearest_letdef point)
+          else
+            go_left loc |> Option.bind ~f:(find_nearest_letdef point)
+        end
+    end
+  else if is_letdef_parent parent && is_vb_child current then
+    begin
+      go_down loc |> Option.bind ~f:(find_nearest_letdef point)
+    end
+  else
+    begin
+      go_left loc |> Option.bind ~f:(find_nearest_letdef point)
+    end
+
+
+
 
 (** finds the nearest enclosing wildcard  *)
-let rec find_nearest_pattern point (MkLocation (current,_) as loc)  =
-  Ecaml.message (Printf.sprintf "Looking at %s" (to_string current));
+let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =
   if is_pattern current then
     begin
       let bounds = t_to_bounds current |> TextRegion.column_start in
-      if not Int.(bounds = point) then Some point
-      else go_left loc |> Option.bind ~f:(find_nearest_pattern point)
+      (* if the point is at the start of a pattern, then continue suearch up *)
+      if not Int.(bounds = point) then
+        let result = begin
+          let items = match parent with
+            | Node {below=_::_ as l; _} -> current :: l
+            | _ -> [current]
+          in
+          let is_value_binding = match parent with
+            | Node {bounds=Some (_,ValueBinding); _}  -> true
+            | _ -> false in 
+          let items = List.take_while ~f:is_pattern items in
+          let items = List.rev items in
+          let items = if is_value_binding then List.drop items 1 else items in 
+          (* todo: make it more efficient *)
+          let items = List.rev items in
+          let items = List.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_start) items in 
+          List.last items
+        end in
+        match result with
+        | Some _ -> result
+        | None -> go_left loc |> Option.bind ~f:(find_nearest_pattern point)
+      else
+        go_left loc |> Option.bind ~f:(find_nearest_pattern point)
     end
   else go_left loc |> Option.bind ~f:(find_nearest_pattern point)
 

@@ -357,7 +357,9 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   (interactive)
   (let ((area (car (gopcaml-find-nearest-pattern (point) (line-number-at-pos)))))
     (if area
-	(progn (goto-char  area))
+	(progn
+	  (goto-char area)
+	  )
       nil)))
 
 (defun gopcaml-move-to-hole ()
@@ -973,10 +975,21 @@ END is the end of the edited text region."
 							   :filter gopcaml-state-sexp-filter))
   (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
 							   :filter gopcaml-state-sexp-filter))
-  (define-key gopcaml-mode-map (kbd "C-c C-v C-p") '(menu-item "" gopcaml-goto-nearest-letdef
+  (define-key gopcaml-mode-map
+    (kbd "C-c C-o")
+    '(menu-item "" gopcaml-goto-nearest-letdef
+		:filter gopcaml-state-filter))
+  (define-key merlin-mode-map
+    (kbd "C-c C-o")
+    '(menu-item "" gopcaml-goto-nearest-letdef
+		:filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-c C-p") '(menu-item "" gopcaml-goto-nearest-pattern
 							   :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-c C-v C-d") '(menu-item "" gopcaml-goto-nearest-pattern
-							   :filter gopcaml-state-filter))
+  (define-key merlin-mode-map
+    (kbd "C-c C-p")
+    '(menu-item "" gopcaml-goto-nearest-pattern
+		:filter gopcaml-state-filter))
+
   (define-key gopcaml-mode-map (kbd "C-M-@")
     '(menu-item "" gopcaml-zipper-mark-mode
 		:filter gopcaml-state-filter))
