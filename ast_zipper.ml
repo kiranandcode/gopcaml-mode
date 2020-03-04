@@ -2076,7 +2076,7 @@ let go_left_enumerative (MkLocation (current,parent) as loc) =
     | Some loc -> Some (go_end loc)
 
 (** finds the nearest enclosing let def  *)
-let rec find_nearest_letdef point (MkLocation (current,parent) as loc)  =
+let rec  goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
   Ecaml.message (Printf.sprintf "Looking at %s" (to_string current));
   let is_vb parent = match parent with
     | Node {bounds=Some (_,v); _} ->
@@ -2131,28 +2131,32 @@ let rec find_nearest_letdef point (MkLocation (current,parent) as loc)  =
             | _ -> [current]
           in
           let items = List.take_while ~f:is_pattern items in
-          let items = List.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_start) items in 
           List.last items
         end in
         match result with
         | Some _ -> result
-        | None -> go_left loc |> Option.bind ~f:(find_nearest_letdef point)
+        | None -> go_left loc |> Option.bind ~f:(goto_nearest_letdef point)
       else
         begin
           if is_vb_parent parent then
-            go_up loc |> Option.bind ~f:(go_left) |> Option.bind ~f:(find_nearest_letdef point)
+            go_up loc |> Option.bind ~f:(go_left) |> Option.bind ~f:(goto_nearest_letdef point)
           else
-            go_left loc |> Option.bind ~f:(find_nearest_letdef point)
+            go_left loc |> Option.bind ~f:(goto_nearest_letdef point)
         end
     end
   else if is_letdef_parent parent && is_vb_child current then
     begin
-      go_down loc |> Option.bind ~f:(find_nearest_letdef point)
+      go_down loc |> Option.bind ~f:(goto_nearest_letdef point)
     end
   else
     begin
-      go_left loc |> Option.bind ~f:(find_nearest_letdef point)
+      go_left loc |> Option.bind ~f:(goto_nearest_letdef point)
     end
+
+(** finds the nearest enclosing let def  *)
+let find_nearest_letdef point loc  =
+  goto_nearest_letdef point loc
+  |> Option.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_start )
 
 
 
