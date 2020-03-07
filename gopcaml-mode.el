@@ -171,8 +171,8 @@ indicates the direction of the movement - allows skipping
 whitespace in direction before constructing zipper.
 SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   (interactive)
-  (if (not zipper-constructor) (setq zipper-constructor #'gopcaml-build-zipper))
-
+  (if  (not zipper-constructor)
+      (setq zipper-constructor #'gopcaml-build-zipper))
   (let ((starting-pos (point))
 	(selection-active (or (region-active-p) selection-mode)))
     (if (and selection-active (not (region-active-p)) (not skip-zipper-mode))
@@ -191,11 +191,14 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 	   ((equal direction 'forward)
 	    (skip-chars-forward " \n\t"))
 	   ((equal direction 'backward)
-	    (skip-chars-backward " \n\t")))
+	    (skip-chars-backward " \n\t")
+	    ))
+	  (message "calling constructor with %s" direction)
 	  (let ((area
 		 (car (funcall zipper-constructor
 			       (point)
-			       (line-number-at-pos))))
+			       (line-number-at-pos)
+			       (list direction))))
 		start end overlay)
 	    ;; if successfull then perform operation
 	    (if area
@@ -266,7 +269,8 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 	  (let ((area
 		 (car (gopcaml-build-zipper
 			       (point)
-			       (line-number-at-pos))))
+			       (line-number-at-pos)
+			       nil)))
 		start end overlay)
 	    ;; if successfull then perform operation
 	    (if area
@@ -548,7 +552,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 (defun gopcaml-zipper-ensure-space ()
   "Ensures-spacing between current element."
   (message "%s" (car (gopcaml-zipper-is-top-level)))
-  (if (car (gopcaml-zipper-is-top-level))
+  (if (and (car (gopcaml-zipper-is-top-level)) (car (gopcaml-zipper-is-top-level-parent)))
         (let
       ((area (car (gopcaml-retrieve-zipper-bounds)))
        start end

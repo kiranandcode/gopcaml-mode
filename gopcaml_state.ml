@@ -34,6 +34,36 @@ module State = struct
     type t = s
   end
 
+  module Direction = struct
+
+    (** records whether the current file is an interface or implementation *)
+    type s = Forward | Backward [@@deriving sexp]
+
+
+    module Enum : Ecaml.Value.Type.Enum with type t = s = struct
+      type t = s
+      let all = [Forward; Backward]
+      let sexp_of_t = sexp_of_s
+    end
+
+    let ty =
+      let to_ecaml direction =
+        match direction with
+        | Forward -> Value.intern "forward"
+        | Backward -> Value.intern "backward" in
+      Value.Type.enum
+        (Sexp.Atom "direction")
+        (module Enum)
+        to_ecaml
+
+    let to_string  = function
+      | Forward -> "forward"
+      | Backward -> "backward"
+
+    type t = s
+  end
+
+
   module Zipper = struct
 
     type t = Ast_zipper.location 
@@ -846,12 +876,17 @@ let print_zipper =
       zipper)
 
 (** retrieve a zipper expression at the current position *)
-let build_zipper_enclosing_point ?current_buffer ~state_var ~zipper_var point line  =
+let build_zipper_enclosing_point ?direction ?current_buffer ~state_var ~zipper_var point line  =
+  let direction = match direction with
+    | None -> false
+    | Some v -> v in 
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
-                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point (Position.to_int point) line false) in
+                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point ((Position.to_int point) - 1)
+                                       line
+                                       direction) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
   |> print_zipper
@@ -866,7 +901,9 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
-                   |> Option.map ~f:(Ast_zipper.move_zipper_broadly_to_point (Position.to_int point) line false) in
+                   |> Option.map ~f:(Ast_zipper.move_zipper_broadly_to_point
+                                       ((Position.to_int point) - 1)
+                                       line false) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
   |> print_zipper
@@ -965,10 +1002,15 @@ let check_zipper_toplevel ?current_buffer ~zipper_var () =
   retrieve_zipper ?current_buffer ~zipper_var
   |> Option.map ~f:(Ast_zipper.zipper_is_top_level)
 
+let check_zipper_toplevel_parent ?current_buffer ~zipper_var () =
+  retrieve_zipper ?current_buffer ~zipper_var
+  |> Option.map ~f:(Ast_zipper.zipper_is_top_level_parent)
+
 (** attempts to move the current zipper left *)
 let move_zipper_left ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_zipper ~current_buffer ~zipper_var
+  |> print_zipper
   |> Option.bind ~f:Ast_zipper.go_left
   |> Option.map ~f:(fun zipper ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;

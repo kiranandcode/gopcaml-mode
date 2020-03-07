@@ -176,8 +176,14 @@ let define_functions () =
     (Returns (Value.Type.option (Value.Type.list Position.type_)))
     (let open Defun.Let_syntax in
      let%map_open point = required "point" (Position.type_)
-     and line = required "line" Value.Type.int in
-     Gopcaml_state.build_zipper_enclosing_point 
+     and line = required "line" Value.Type.int 
+     and direction = required "direction" (Value.Type.option Gopcaml_state.State.Direction.ty) in
+     let direction = match direction with
+       | None
+       | Some (Forward) -> true
+       | _ -> false in 
+     Gopcaml_state.build_zipper_enclosing_point
+       ~direction
        ~state_var:Variables.state_var ~zipper_var:Variables.zipper_var point line
      |> Option.map ~f:(fun (a,b) -> [a; b])
     );
@@ -188,7 +194,8 @@ let define_functions () =
     (Returns (Value.Type.option (Value.Type.list Position.type_)))
     (let open Defun.Let_syntax in
      let%map_open point = required "point" (Position.type_)
-     and line = required "line" Value.Type.int in
+     and line = required "line" Value.Type.int
+     and _direction = required "direction" (Value.Type.option Gopcaml_state.State.Direction.ty) in
      Gopcaml_state.build_zipper_broadly_enclosing_point 
        ~state_var:Variables.state_var ~zipper_var:Variables.zipper_var point line
      |> Option.map ~f:(fun (a,b) -> [a; b])
@@ -276,6 +283,16 @@ let define_functions () =
     (let open Defun.Let_syntax in
      let%map_open op =
        return @@ Gopcaml_state.check_zipper_toplevel ~zipper_var:Variables.zipper_var in
+     op ()
+    );
+  defun
+    ("gopcaml-zipper-is-top-level-parent" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Checks whether the item under the zipper has a top-level parent. |}
+    (Returns (Value.Type.option Value.Type.bool))
+    (let open Defun.Let_syntax in
+     let%map_open op =
+       return @@ Gopcaml_state.check_zipper_toplevel_parent ~zipper_var:Variables.zipper_var in
      op ()
     );
   defun
