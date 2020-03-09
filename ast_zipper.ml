@@ -1,5 +1,19 @@
 open Core
 
+let split_last ls =
+  let rec loop ls acc =
+    match ls with
+    | [] ->
+      acc |> Option.map ~f:(fun (ls,it) -> List.rev ls, it)
+    | h :: t ->
+      let acc = match acc with
+        | None -> Some ([], h)
+        | Some (belast,last) ->
+          Some (last :: belast, h) in
+      loop t acc
+  in
+  loop ls None
+
 module TextRegion : sig
 
   module Diff : sig
@@ -1610,6 +1624,7 @@ let is_top_level  = function
   | Sequence (Some (_, LetOp), _, _ , _) 
   | Sequence (Some (_, LetException), _, _ , _) 
   | Sequence (Some (_, LetModule), _, _ , _) 
+  | Sequence (Some (_, ModuleDefinition), _, _ , _) 
   | Sequence (Some (_, ModuleSignature), _, _ , _) 
   | Sequence (Some (_, ModuleStructure), _, _ , _) -> true
   | _ -> false
@@ -1659,24 +1674,23 @@ let zipper_is_pattern (MkLocation (current,_))  =
   is_pattern current
 
 (** moves the location to the nearest structure item enclosing or around it   *)
-let rec move_zipper_broadly_to_point point line forward =
+let rec move_zipper_broadly_to_point point line forward loc =
+  Ecaml.message "moving broadly to point";
   let distance region =
-    let region_line = TextRegion.line_start region in 
-    let region_column = TextRegion.column_start region in 
-    let line_pos =
-      if not forward then begin
-        if (not (region_line = 0) && region_line <= line) ||
-           (region_line = 0 &&  region_column <= point)
-        then 0
-        else 1
-      end
-      else 0 in
-    match TextRegion.distance_line region ~point ~line with
-    | None,None -> line_pos,Int.max_value, Int.max_value
-    | None, Some line -> (line_pos, Int.max_value, line)  
-    | Some col, None -> (line_pos, col, Int.max_value)  
-    | Some col, Some line -> (line_pos, col, line)  in
-  function
+    (* let region_line = TextRegion.line_start region in 
+     * let region_column = TextRegion.column_start region in  *)
+    match TextRegion.distance_line ~forward region ~point ~line with
+    | None,None -> Int.max_value, Int.max_value
+    | None, Some line -> (Int.max_value, line)  
+    | Some col, None -> (col, Int.max_value)  
+    | Some col, Some line -> (col, line)  in
+  let contains =
+      let MkLocation (current,_) = loc in 
+      Ecaml.message (Printf.sprintf "move_broadly with %s" (to_string current));
+      TextRegion.contains_point (t_to_bounds current) point
+  in
+  if contains then
+  match loc with
   | MkLocation (Sequence (bounds, l,c,r), parent) ->
     (* finds the closest strictly enclosing item *)
     let  find_closest_enclosing ls =
@@ -1688,7 +1702,9 @@ let rec move_zipper_broadly_to_point point line forward =
           else loop t (h :: acc)
         | [] -> None in
       loop ls [] in
-    begin match find_closest_enclosing (List.rev l @ c :: r)  with
+    begin
+      Ecaml.message "looking at a sequence!";
+      match find_closest_enclosing (List.rev l @ c :: r)  with
       (* we found an enclosing expression - go into it *)
       | Some (l,c,r) ->
         move_zipper_broadly_to_point point line forward
@@ -1699,13 +1715,13 @@ let rec move_zipper_broadly_to_point point line forward =
                         |> List.map ~f:(fun elem -> distance (t_to_bounds elem), elem) in
         let min_item = List.min_elt
             ~compare:(fun (d,_) (d',_) ->
-                Tuple3.compare ~cmp1:Int.compare ~cmp2:Int.compare ~cmp3:Int.compare d d'
+                Tuple2.compare ~cmp1:Int.compare ~cmp2:Int.compare d d'
               ) sub_items in
         match min_item with
         | None -> (* this can never happen - list always has at least 1 element *) assert false
         | Some (min, _) ->
           begin match List.split_while sub_items ~f:(fun (d,_) ->
-              not @@ Tuple3.equal ~eq1:Int.equal ~eq2:Int.equal ~eq3:Int.equal d min
+              not @@ Tuple2.equal ~eq1:Int.equal ~eq2:Int.equal d min
             ) with
           | ([],(_, c) :: r) ->
             (* let start_col = TextRegion.column_start (t_to_bounds c) in *)
@@ -1725,29 +1741,33 @@ let rec move_zipper_broadly_to_point point line forward =
           end
     end
   | (MkLocation (current,parent) as v) ->
-    if  TextRegion.contains_point (t_to_bounds current) point
+    if TextRegion.contains_point (t_to_bounds current) point
     then
       begin
+        Ecaml.message "contains point!";
         let descend = t_descend current in
         if not (is_top_level descend) then v else
           match descend with
           | (Sequence _ as s) ->
-            let (MkLocation (current', _) as zipper) =
+            let (MkLocation (_current', _) as zipper) =
               move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
             let selected_distance =
-              distance (t_to_bounds current') in
+              distance (t_to_bounds _current') in
             let enclosing_distance =
               distance (t_to_bounds current) in
-            if (snd3 enclosing_distance < snd3 selected_distance) ||
-               ((trd3 enclosing_distance = trd3 selected_distance) &&
-                (trd3 enclosing_distance < trd3 selected_distance)) ||
-               (fst3 selected_distance > line)
-            then v
+            if (fst enclosing_distance < fst selected_distance) ||
+               ((snd enclosing_distance = snd selected_distance) &&
+                (snd enclosing_distance < fst selected_distance))
+            then begin
+              Ecaml.message "passed closeness test";
+              v
+            end
             else zipper
           | v -> (MkLocation (v, parent))
 
       end
     else v
+  else loc
 
 let insert_element (MkLocation (current,parent)) (element: t)  =
   let (let+) x f = Option.bind ~f x in
@@ -1935,6 +1955,27 @@ let move_up (MkLocation (current,_) as loc)  =
   let+ (loc,insert_pos) = insert_element loc current in
   Some (loc, insert_pos, TextRegion.to_bounds bounds)
 
+let go_start loc =
+  match loc with
+  | (MkLocation (current, (Node {bounds; below;parent;above})) as loc) -> 
+    begin
+      match split_last below with
+      | None -> loc
+      | Some (belast,last) ->
+        (
+          MkLocation (
+            last,
+            Node {
+              bounds;
+              parent;
+              above=(List.rev belast) @ current::above;
+              below=[];
+            }
+          )
+        )
+    end
+  | _ -> loc
+
 let move_down (MkLocation (current,_) as loc)  =
   let rec loop loc =
     match loc with
@@ -1949,7 +1990,7 @@ let move_down (MkLocation (current,_) as loc)  =
     | None -> None
     | Some (MkLocation (_, parent) as loc) ->
       if not (is_top_level_parent parent) then
-        match go_down loc with
+        match go_down loc |> Option.map ~f:go_start with
         | None -> loop_forward (go_right loc)
         | v -> loop_forward v
       else Some loc
@@ -1959,9 +2000,7 @@ let move_down (MkLocation (current,_) as loc)  =
     let+ loc = loop (Some loc) in
 
     let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
-
-    let+ (MkLocation (_,_) as loc) = go_down loc in
-
+    let+ (MkLocation (_,_) as loc) = go_down loc |> Option.map ~f:go_start in
     (* Ecaml.message (Printf.sprintf "current item: %b\n\tparent: %s\n\tcurr: %s\n"
      *                  (is_top_level_parent par)
      *                  (describe_zipper par)
@@ -2068,19 +2107,7 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
   in
   loop zipper
 
-let split_last ls =
-  let rec loop ls acc =
-    match ls with
-    | [] ->
-      acc |> Option.map ~f:(fun (ls,it) -> List.rev ls, it)
-    | h :: t ->
-      let acc = match acc with
-        | None -> Some ([], h)
-        | Some (belast,last) ->
-          Some (last :: belast, h) in
-      loop t acc
-  in
-  loop ls None
+
 
 let go_end loc =
   match loc with
@@ -2102,6 +2129,8 @@ let go_end loc =
         )
     end
   | _ -> loc
+
+
 
 (** move across the tree in an enumerative way - i.e
     move left, once at start, move up and move to end of upper section  *)
@@ -2196,6 +2225,12 @@ let rec  goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
 let find_nearest_letdef point loc  =
   goto_nearest_letdef point loc
   |> Option.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_start )
+
+(** finds the nearest enclosing let def  *)
+let find_nearest_letdef_end point loc  =
+  goto_nearest_letdef point loc
+  |> Option.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_end )
+
 
 (** finds the nearest enclosing wildcard  *)
 let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =

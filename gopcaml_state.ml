@@ -9,13 +9,11 @@ module State = struct
     (** records whether the current file is an interface or implementation *)
     type s = Interface | Implementation [@@deriving sexp]
 
-
     module Enum : Ecaml.Value.Type.Enum with type t = s = struct
       type t = s
       let all = [Interface; Implementation]
       let sexp_of_t = sexp_of_s
     end
-
 
     let ty =
       let to_ecaml file_type =
@@ -916,7 +914,7 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
 let find_nearest_defun ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
-  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0) )
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1) )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
                         (Position.to_int point - 1)
                         (line + 1)
@@ -924,11 +922,24 @@ let find_nearest_defun ?current_buffer ~state_var point line =
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
+(** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
+let find_nearest_defun_end ?current_buffer ~state_var point line =
+  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
+  retrieve_gopcaml_state ~current_buffer ~state_var ()
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
+  |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
+                        (Position.to_int point - 1)
+                        line
+                        true
+                        zipper)
+  |> Option.map ~f:(fun x -> x + 1)
+
+
 (** returns the point corresponding to the start of the nearest letdef (or respective thing in ocaml) *)
 let find_nearest_letdef ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
-  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0)
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1)
                     )
   |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_int point) line false )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_letdef
@@ -940,23 +951,10 @@ let find_nearest_letdef ?current_buffer ~state_var point line =
 let find_nearest_pattern ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
-  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0))
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
   |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_int point) line false )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_pattern
                         (Position.to_int point - 1)
-                        zipper)
-  |> Option.map ~f:(fun x -> x + 1)
-
-
-(** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
-let find_nearest_defun_end ?current_buffer ~state_var point line =
-  let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
-  retrieve_gopcaml_state ~current_buffer ~state_var ()
-  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 0))
-  |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
-                        (Position.to_int point - 1)
-                        line
-                        true
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
