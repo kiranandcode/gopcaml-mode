@@ -189,7 +189,7 @@ end
   let contains_ne_point (({  col=c1; _ },{  col=c2; _ }):t) point =
     match c1,c2 with
     | -1,-1 | -1, _ | _, -1 -> false
-    | a, b  -> a < point && point > b
+    | a, b  -> a < point && point < b
 
 
   let equals_point ?forward (({  col=c1; _ },{  col=c2; _ }):t) point =
@@ -1699,7 +1699,7 @@ let rec move_zipper_broadly_to_point point line forward loc =
   let contains =
       let MkLocation (current,_) = loc in 
       Ecaml.message (Printf.sprintf "move_broadly with %s" (to_string current));
-      TextRegion.contains_point (t_to_bounds current) point
+      TextRegion.contains_ne_point (t_to_bounds current) point
   in
   if contains then
   match loc with
@@ -1759,7 +1759,7 @@ let rec move_zipper_broadly_to_point point line forward loc =
           end
     end
   | (MkLocation (current,parent) as v) ->
-    if TextRegion.contains_point (t_to_bounds current) point
+    if TextRegion.contains_ne_point (t_to_bounds current) point
     then
       begin
         Ecaml.message "non-sequence contains - thus trying to descend";
