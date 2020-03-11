@@ -353,7 +353,9 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   (interactive)
   (let ((area (car (gopcaml-find-nearest-letdef (point) (line-number-at-pos)))))
     (if area
-	(progn (goto-char  area))
+	(progn
+	  (push-mark)
+	  (goto-char  area))
       nil)))
 
 (defun gopcaml-goto-nearest-pattern ()
@@ -362,6 +364,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   (let ((area (car (gopcaml-find-nearest-pattern (point) (line-number-at-pos)))))
     (if area
 	(progn
+	  (push-mark)
 	  (goto-char area)
 	  )
       nil)))
