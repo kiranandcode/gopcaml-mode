@@ -1,4 +1,4 @@
-* Gopcaml-mode Todo
+* Todo
 ** DONE Update temporary highlight function to be less convoluted
    CLOSED: [2020-02-12 Wed 13:53]
 ** DONE Rebuild parse tree on changes
@@ -91,6 +91,7 @@
    CLOSED: [2020-02-21 Fri 19:15]
 
 ** TODO Support zipper to range
+** TODO Implement refactoring
 * Inessential todos
 ** TODO - move zipper to point and kill
 *** DONE C-M-k - kill sexp

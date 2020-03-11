@@ -14,6 +14,8 @@ let split_last ls =
   in
   loop ls None
 
+
+
 module TextRegion : sig
 
   module Diff : sig
@@ -21,8 +23,8 @@ module TextRegion : sig
     val of_pair : line:int -> col:int -> t
     val combine : t -> t -> t
     val to_string : t -> string
-    val negate : t -> t
-    val add_newline_with_indent: indent:int -> t -> t 
+    val add_newline_with_indent: indent:int -> t -> t
+    val negate : t -> t 
     val update_lexing_position : Lexing.position -> t -> Lexing.position 
   end
 
@@ -41,6 +43,8 @@ module TextRegion : sig
   val extend_region : t -> Diff.t -> t
 
   val union : t -> t -> t
+
+  val before_point : t -> int -> bool
 
   val contains_point : t -> int -> bool
 
@@ -70,9 +74,7 @@ module TextRegion : sig
 
   val to_shift_from_start: t -> Diff.t
 
-end
-
-    = struct
+end = struct
 
   module Diff = struct
     type t = int * int
@@ -178,12 +180,18 @@ end
           loc_end= Diff.update_lexing_position loc_end diff; }
        ) }
 
+  let before_point (({  col=c1; _ },_):t) point =
+    match c1 with
+    | -1 -> false
+    | a  ->
+      (* Ecaml.message (Printf.sprintf "comparing %d <= %d <= %d" a point b); *)
+      point < a
 
   let contains_point (({  col=c1; _ },{  col=c2; _ }):t) point =
     match c1,c2 with
     | -1,-1 | -1, _ | _, -1 -> false
     | a, b  ->
-      Ecaml.message (Printf.sprintf "comparing %d <= %d <= %d" a point b);
+      (* Ecaml.message (Printf.sprintf "comparing %d <= %d <= %d" a point b); *)
       a <= point && point <= b
 
   let contains_ne_point (({  col=c1; _ },{  col=c2; _ }):t) point =
@@ -284,6 +292,8 @@ end
 
 end
 
+
+
 type unwrapped_type =
   | ConstructorDefinition         (* _ A of b _ *)
   | LabelSpecification            (* _ x : t _ *)
@@ -382,9 +392,18 @@ type t =
   | Sequence of ((TextRegion.t * unwrapped_type) option * t list * t * t list)[@opaque]
   | EmptySequence of TextRegion.t * unwrapped_type[@opaque]
 
-let rec to_string = function
-  | Signature_item _ -> "Signature_item"
-  | Structure_item si -> "Structure_item - {" ^ (Pprintast.string_of_structure [si]) ^ "}"
+let rec to_string =
+  let truncate ?(n = 15) items =
+    let items = if String.length items > n then (String.slice items 0 n) ^ "..." else items in
+    items
+  in 
+  function
+  | Signature_item _si ->
+    let formatter = Format.str_formatter in
+    Pprintast.signature formatter [_si];
+    let str = Format.flush_str_formatter () in 
+    (Printf.sprintf "Signature_item {%s}" (truncate str))
+  | Structure_item _si -> "Structure_item" (* " - {" ^ (Pprintast.string_of_structure [si]) ^ "}" *)
   | Value_binding _ -> "Value_binding"
   | Type_declaration _ -> "Type_declaration"
   | Attribute  _ -> "Attribute of"
@@ -1541,7 +1560,7 @@ let at_start current point =
 
 (** moves the location to the nearest expression enclosing or around it   *)
 let rec move_zipper_to_point point line forward loc =
-  if not forward then Ecaml.message "moving backward";
+  (* if not forward then Ecaml.message "moving backward"; *)
   let distance region =
     (* let region_line = TextRegion.line_start region in 
      * let region_column = TextRegion.column_start region in  *)
@@ -1565,12 +1584,12 @@ let rec move_zipper_to_point point line forward loc =
     begin match find_closest_enclosing (List.rev l @ c :: r)  with
       (* we found an enclosing expression - go into it *)
       | Some (l,c,r) ->
-        Ecaml.message "contains found";
+        (* Ecaml.message "contains found"; *)
         move_zipper_to_point point line forward
           (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
       (* none of the subelements contain the point - find the closest one *)
       | None ->
-        Ecaml.message "contains not found";
+        (* Ecaml.message "contains not found"; *)
         let sub_items = (List.rev l @ c :: r)
                         |> List.map ~f:(fun elem -> distance (t_to_bounds elem), elem) in
         let min_item = List.min_elt
@@ -1604,12 +1623,12 @@ let rec move_zipper_to_point point line forward loc =
     let current_bounds =  (t_to_bounds current) in 
     if TextRegion.equals_point ~forward current_bounds point
     then begin
-      Ecaml.message "found start of current";
+      (* Ecaml.message "found start of current"; *)
       v
     end
     else if TextRegion.contains_point current_bounds point
     then begin
-      Ecaml.message "found contains";
+      (* Ecaml.message "found contains"; *)
        match t_descend current with
       | (Sequence _ as s) ->
         let (MkLocation (current', _) as zipper) =
@@ -1634,13 +1653,9 @@ let is_top_level  = function
   | Structure_item _ 
   | Signature_item _
   | Sequence (None, _, _ , _) 
-  | Sequence (Some (_, LetBinding), _, _ , _) 
-  | Sequence (Some (_, LetOp), _, _ , _) 
-  | Sequence (Some (_, LetException), _, _ , _) 
-  | Sequence (Some (_, LetModule), _, _ , _) 
-  | Sequence (Some (_, ModuleDefinition), _, _ , _) 
-  | Sequence (Some (_, ModuleSignature), _, _ , _) 
-  | Sequence (Some (_, ModuleStructure), _, _ , _) -> true
+  | Sequence (Some (_, ValueBinding), _, _ , _) 
+  | Sequence (Some (_, ModuleDeclaration), _, _ , _) 
+  | Sequence (Some (_, ModuleDefinition), _, _ , _) -> true
   | _ -> false
 
 (** determines whether the parent is a top-level item - i.e supports
@@ -1687,9 +1702,18 @@ let zipper_is_pattern (MkLocation (current,_))  =
    *               ); *)
   is_pattern current
 
+let zipper_is_first (MkLocation (_, parent)) =
+  match parent with
+  | Top -> true
+  | Node {  below=b; _ } ->
+    match b with
+    | [] -> true
+    | _ -> false
+
+
 (** moves the location to the nearest structure item enclosing or around it   *)
 let rec move_zipper_broadly_to_point point line forward loc =
-  Ecaml.message "moving broadly to point";
+  (* Ecaml.message (Printf.sprintf "moving broadly to point %d" point); *)
   let distance region =
     (* let region_line = TextRegion.line_start region in 
      * let region_column = TextRegion.column_start region in  *)
@@ -1698,9 +1722,14 @@ let rec move_zipper_broadly_to_point point line forward loc =
     | Some col -> col in
   let contains =
       let MkLocation (current,_) = loc in 
-      Ecaml.message (Printf.sprintf "move_broadly with %s" (to_string current));
-      TextRegion.contains_ne_point (t_to_bounds current) point
+      (* Ecaml.message (Printf.sprintf "move_broadly with %s" (to_string current)); *)
+      let contains = TextRegion.contains_ne_point (t_to_bounds current) point in 
+      (* if contains then Ecaml.message (Printf.sprintf "contains ne yo %d \in %s!"
+       *                                   point
+       *                                   (TextRegion.to_string (t_to_bounds current)) ); *)
+      contains
   in
+
   if contains then
   match loc with
   | MkLocation (Sequence (bounds, l,c,r), parent) ->
@@ -1715,11 +1744,11 @@ let rec move_zipper_broadly_to_point point line forward loc =
         | [] -> None in
       loop ls [] in
     begin
-      Ecaml.message "looking at a sequence!";
+      (* Ecaml.message "looking at a sequence!"; *)
       match find_closest_enclosing (List.rev l @ c :: r)  with
       (* we found an enclosing expression - go into it *)
       | Some (l,c,r) ->
-        Ecaml.message (Printf.sprintf "found enclosing %s!" (to_string c));
+        (* Ecaml.message (Printf.sprintf "found enclosing %s!" (to_string c)); *)
         move_zipper_broadly_to_point point line forward
           (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
       (* none of the subelements contain the point - find the closest one *)
@@ -1739,8 +1768,9 @@ let rec move_zipper_broadly_to_point point line forward loc =
           | ([],(_, c) :: r) ->
             (* let start_col = TextRegion.column_start (t_to_bounds c) in *)
             (* let sel_line = TextRegion.line_start (t_to_bounds c) in *)
+            let c_bounds = t_to_bounds c in 
             let r = List.map ~f:snd r in
-            Ecaml.message (Printf.sprintf "found min item %s!" (to_string c));
+            (* Ecaml.message (Printf.sprintf "found min item %s!" (to_string c)); *)
             (* if  (not forward)
              * then
              *   begin
@@ -1748,6 +1778,9 @@ let rec move_zipper_broadly_to_point point line forward loc =
              *     (MkLocation (Sequence (bounds, [],c,r), parent))
              *   end
              * else *)
+            if not forward && TextRegion.before_point c_bounds point then
+              (MkLocation (Sequence (bounds, [],c,r), parent))
+            else   
               move_zipper_broadly_to_point point line forward
                 (MkLocation (c, Node {below=l; parent; above=r; bounds}))
           | (l,(_, c) :: r) ->
@@ -1762,13 +1795,13 @@ let rec move_zipper_broadly_to_point point line forward loc =
     if TextRegion.contains_ne_point (t_to_bounds current) point
     then
       begin
-        Ecaml.message "non-sequence contains - thus trying to descend";
+        (* Ecaml.message "non-sequence contains - thus trying to descend"; *)
         let descend = t_descend current in
         if not (is_top_level descend)
         then
           begin
-            Ecaml.message (Printf.sprintf "descended value %s is not top-level so ignoring"
-                          (to_string descend));
+            (* Ecaml.message (Printf.sprintf "descended value %s is not top-level so ignoring"
+             *               (to_string descend)); *)
             v
           end
         else
@@ -1778,10 +1811,15 @@ let rec move_zipper_broadly_to_point point line forward loc =
               move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
             let descend_region =
               (t_to_bounds _current') in
-            if (not forward && not (TextRegion.contains_point descend_region point))
+            if (not forward && (zipper_is_first zipper) &&
+                  (TextRegion.before_point descend_region point))
             then begin
-              Ecaml.message "going backwards so not descending";
-              zipper
+              (* Ecaml.message (Printf.sprintf "going backwards so not descending into %s bounded by %s vs %d"
+               *                  (to_string _current')
+               *                  (TextRegion.to_string descend_region)
+               *                  point
+               *               ); *)
+              v
             end
             else zipper
           | v -> (MkLocation (v, parent))
@@ -2103,24 +2141,25 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
 (** finds the item bounds for the nearest structure/signature (essentially defun) item  *)
 let find_nearest_definition_item_bounds point line forward zipper : _ option =
   let zipper = move_zipper_broadly_to_point point line forward zipper in
-  Ecaml.message (Printf.sprintf   "reached end with %s" (describe_current_item zipper));
+  (* Ecaml.message (Printf.sprintf   "reached end with %s" (describe_current_item zipper)); *)
   let rec loop zipper =
     let get_result pos_start pos_end =
       if (not forward && point = pos_start)
       then
         begin
-          Ecaml.message "fndid - going left";
           (go_left zipper) |> Option.bind ~f:loop
         end
-      else if (forward && point = pos_end)
+      else if (forward && (point - 1) = pos_end)
       then
         begin
-          Ecaml.message "fndid - going right";
           (go_right zipper) |> Option.bind ~f:loop
         end
-      else if forward then  Some pos_end else Some pos_start in
+      else if forward then begin
+          Some pos_end
+      end
+      else Some pos_start in
     let MkLocation (current,_) = zipper in
-    Ecaml.message (Printf.sprintf   "loop called on %s" (to_string current));
+    (* Ecaml.message (Printf.sprintf   "loop called on %s" (to_string current)); *)
     match current with
     | Signature_item { psig_loc = { loc_start; loc_end; _ }; _ } 
     | Structure_item {  pstr_loc = { loc_start; loc_end; _ };_ } ->
@@ -2135,7 +2174,7 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
       let end_column = TextRegion.column_end bound in
       get_result start_column end_column
     | _ ->
-      Ecaml.message "fndid - going up";
+      (* Ecaml.message "fndid - going up"; *)
       (go_up zipper) |> Option.bind ~f:loop
   in
   loop zipper
