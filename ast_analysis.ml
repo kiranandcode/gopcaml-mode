@@ -82,28 +82,70 @@ let rec find_variables_exp ({
     let e2_variables = find_variables_exp e2 in
     let all_bindings = e1_variables @ e2_variables in
     dedup all_bindings
-  | Parsetree.Pexp_ifthenelse (_, _, _) -> (??)
-  | Parsetree.Pexp_sequence (_, _) -> (??)
-  | Parsetree.Pexp_while (_, _) -> (??)
-  | Parsetree.Pexp_for (_, _, _, _, _) -> (??)
-  | Parsetree.Pexp_constraint (_, _) -> (??)
-  | Parsetree.Pexp_coerce (_, _, _) -> (??)
-  | Parsetree.Pexp_send (_, _) -> (??)
-  | Parsetree.Pexp_new _ -> (??)
-  | Parsetree.Pexp_setinstvar (_, _) -> (??)
-  | Parsetree.Pexp_override _ -> (??)
+  | Parsetree.Pexp_ifthenelse (e1, e2, e3) ->
+    let e1_vars = find_variables_exp e1 in 
+    let e2_vars = find_variables_exp e2 in 
+    let e3_vars = Option.map ~f:find_variables_exp e3 |> Option.value ~default:[] in
+   dedup (e1_vars @ e2_vars @ e3_vars)
+  | Parsetree.Pexp_while (e1, e2)
+  | Parsetree.Pexp_sequence (e1, e2) ->
+    let e1_vars = find_variables_exp e1 in 
+    let e2_vars = find_variables_exp e2 in
+    dedup (e1_vars @ e2_vars)
+  | Parsetree.Pexp_for (pat, e1, e2, _, e3) ->
+    let e1_vars = find_variables_exp e1 in 
+    let e2_vars = find_variables_exp e2 in
+    let e3_vars = find_variables_exp e3 in
+    let for_index_pattern = find_variables_pat pat in 
+    let e3_vars = subtract e3_vars for_index_pattern in
+    let vars = e1_vars @ e2_vars @ e3_vars in
+    dedup vars
+  | Parsetree.Pexp_assert e1
+  | Parsetree.Pexp_newtype (_, e1)
+  | Parsetree.Pexp_poly (e1, _)
+  | Parsetree.Pexp_lazy e1
+  | Parsetree.Pexp_setinstvar (_, e1)
+  | Parsetree.Pexp_send (e1, _)
+  | Parsetree.Pexp_coerce (e1, _, _)
+  | Parsetree.Pexp_constraint (e1, _) ->
+    find_variables_exp e1
+  | Parsetree.Pexp_new _ -> []
+  | Parsetree.Pexp_override fields ->
+    let fields = List.map ~f:snd fields in
+    let vars = List.concat_map ~f:find_variables_exp fields in
+    dedup vars
+  | Parsetree.Pexp_letop { let_; ands; body } ->
+    let (bound_variables, used_variables) =
+      List.fold ~init:([],[]) ~f:(fun (bound,used) bop ->
+          let (b, u) = find_variables_bop bop in
+          let u = subtract u bound in
+          let bound = bound @ b in 
+          let used = used @ u in
+          (bound,used)
+        ) (let_ :: ands)
+    in 
+    let expr_variables = find_variables_exp body in
+    let expr_variables = subtract expr_variables bound_variables in
+    let all_variables = used_variables @ expr_variables in
+    dedup all_variables
+  | Parsetree.Pexp_open (_, _) -> (??)
   | Parsetree.Pexp_letmodule (_, _, _) -> (??)
   | Parsetree.Pexp_letexception (_, _) -> (??)
-  | Parsetree.Pexp_assert _ -> (??)
-  | Parsetree.Pexp_lazy _ -> (??)
-  | Parsetree.Pexp_poly (_, _) -> (??)
   | Parsetree.Pexp_object _ -> (??)
-  | Parsetree.Pexp_newtype (_, _) -> (??)
   | Parsetree.Pexp_pack _ -> (??)
-  | Parsetree.Pexp_open (_, _) -> (??)
-  | Parsetree.Pexp_letop { let_; ands; body } -> (??)
   | Parsetree.Pexp_extension ext -> find_variables_ext ext
   | Parsetree.Pexp_unreachable -> []
+and find_variables_od ({ popen_expr; _ }: Parsetree.open_declaration) =
+  find_variables_mexp popen_expr
+and  find_variables_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
+  match pmod_desc with
+  | Parsetree.Pmod_ident _ -> (??)
+  | Parsetree.Pmod_structure _ -> (??)
+  | Parsetree.Pmod_functor (_, _, _) -> (??)
+  | Parsetree.Pmod_apply (_, _) -> (??)
+  | Parsetree.Pmod_constraint (_, _) -> (??)
+  | Parsetree.Pmod_unpack _ -> (??)
+  | Parsetree.Pmod_extension _ -> (??)
 and find_variables_ext ((_, pylod): Parsetree.extension) =
   match pylod with
   | Parsetree.PStr _ -> assert false
@@ -116,6 +158,8 @@ and find_variables_ext ((_, pylod): Parsetree.extension) =
     dedup all_bindings
 and find_variables_vb ({ pvb_pat; pvb_expr; _ }: Parsetree.value_binding) =
   find_variables_pat pvb_pat, find_variables_exp pvb_expr
+and find_variables_bop ({ pbop_pat; pbop_exp; _ }: Parsetree.binding_op) =
+  find_variables_pat pbop_pat, find_variables_exp pbop_exp
 and find_variables_pat ({ ppat_desc; _ }: Parsetree.pattern) : string list =
   match ppat_desc with
   | Parsetree.Ppat_any -> []
