@@ -945,6 +945,14 @@ END is the end of the edited text region."
     )
   )
 
+(defun gopcaml-list-free-variables (start end)
+  "list free variables in region"
+  (interactive "^r")
+  (let ((text (buffer-substring-no-properties start end)))
+    (when (and text)
+      (message text)
+      (princ-list (gopcaml-find-free-variables text)))    
+   ))
 
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
@@ -1000,6 +1008,8 @@ END is the end of the edited text region."
   (define-key gopcaml-mode-map (kbd "C-M-@")
     '(menu-item "" gopcaml-zipper-mark-mode
 		:filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-c C-v")
+    '(menu-item "" gopcaml-list-free-variables))
   (define-key gopcaml-mode-map (kbd "C-M-SPC")
     '(menu-item "" gopcaml-zipper-mark-mode
 		:filter gopcaml-state-filter))

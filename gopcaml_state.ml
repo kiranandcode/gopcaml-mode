@@ -1133,3 +1133,12 @@ let zipper_move_down ?current_buffer ~zipper_var ()  =
        ))
     )
 
+(** finds all variables in the given expression *)
+let find_variables_region text =
+  let exp =
+    let lexbuf = Lexing.from_string ~with_positions:true text in
+    Parse.expression lexbuf
+  in 
+  Ast_analysis.find_variables_exp exp
+
+

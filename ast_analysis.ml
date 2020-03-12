@@ -128,24 +128,220 @@ let rec find_variables_exp ({
     let expr_variables = subtract expr_variables bound_variables in
     let all_variables = used_variables @ expr_variables in
     dedup all_variables
-  | Parsetree.Pexp_open (_, _) -> (??)
-  | Parsetree.Pexp_letmodule (_, _, _) -> (??)
-  | Parsetree.Pexp_letexception (_, _) -> (??)
-  | Parsetree.Pexp_object _ -> (??)
-  | Parsetree.Pexp_pack _ -> (??)
+  | Parsetree.Pexp_open (od, expr) ->
+    let od_vari = find_variables_od od in
+    let expr_vari = find_variables_exp expr in
+    let all_variables = od_vari @ expr_vari in 
+    dedup all_variables
+  | Parsetree.Pexp_letmodule (_, mexpr, expr) ->
+    let mexpr_vari = find_variables_mexp mexpr in
+    let expr_vari = find_variables_exp expr in 
+    let all_variables = mexpr_vari @ expr_vari in 
+    dedup all_variables
+  | Parsetree.Pexp_letexception (_, expr) -> find_variables_exp expr
+  | Parsetree.Pexp_object cs -> find_variables_cs cs
+  | Parsetree.Pexp_pack mexpr -> find_variables_mexp mexpr
   | Parsetree.Pexp_extension ext -> find_variables_ext ext
   | Parsetree.Pexp_unreachable -> []
 and find_variables_od ({ popen_expr; _ }: Parsetree.open_declaration) =
   find_variables_mexp popen_expr
 and  find_variables_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
   match pmod_desc with
-  | Parsetree.Pmod_ident _ -> (??)
-  | Parsetree.Pmod_structure _ -> (??)
-  | Parsetree.Pmod_functor (_, _, _) -> (??)
-  | Parsetree.Pmod_apply (_, _) -> (??)
-  | Parsetree.Pmod_constraint (_, _) -> (??)
-  | Parsetree.Pmod_unpack _ -> (??)
-  | Parsetree.Pmod_extension _ -> (??)
+  | Parsetree.Pmod_ident _ -> []
+  | Parsetree.Pmod_structure str -> List.concat_map ~f:find_variables_si str
+  | Parsetree.Pmod_functor (_, omt, mexp) ->
+    let variables = Option.map ~f:find_variables_mt omt |> Option.value ~default:[] in 
+    let expr = find_variables_mexp mexp in
+    let all_variables = variables @ expr in
+    dedup all_variables
+  | Parsetree.Pmod_apply (mexp, mexp2) ->
+    find_variables_mexp mexp @  find_variables_mexp mexp2
+  | Parsetree.Pmod_constraint (mexp, mt) ->
+    find_variables_mexp mexp @ find_variables_mt mt
+  | Parsetree.Pmod_unpack expr -> find_variables_exp expr
+  | Parsetree.Pmod_extension ext -> find_variables_ext ext
+and find_variables_si ({ pstr_desc; _ }: Parsetree.structure_item) =
+  match pstr_desc with
+  | Parsetree.Pstr_eval (expr, _) -> find_variables_exp expr
+  | Parsetree.Pstr_value (_, vbs) ->
+    let (bound, unbound) = List.map  ~f:find_variables_vb vbs
+                           |> List.unzip in
+    let bound = List.concat bound in 
+    let unbound = List.concat unbound in 
+    let bindings = subtract unbound bound in
+    dedup bindings
+  | Parsetree.Pstr_primitive _ -> []
+  | Parsetree.Pstr_type (_, _) -> []
+  | Parsetree.Pstr_typext _ -> []
+  | Parsetree.Pstr_exception _ -> []
+  | Parsetree.Pstr_module mb -> find_variables_mb mb
+  | Parsetree.Pstr_recmodule mbs ->
+    List.concat_map ~f:find_variables_mb mbs
+  | Parsetree.Pstr_modtype mt -> find_variables_mtdcl mt
+  | Parsetree.Pstr_open od -> find_variables_od od
+  | Parsetree.Pstr_class cls ->
+    List.concat_map ~f:find_variables_cls cls
+  | Parsetree.Pstr_class_type ct -> List.concat_map ~f:find_variables_ctdcl ct
+  | Parsetree.Pstr_include id -> find_variables_id id
+  | Parsetree.Pstr_attribute _ -> []
+  | Parsetree.Pstr_extension (ext, _) -> find_variables_ext ext
+and find_variables_id ({ pincl_mod; _ }: Parsetree.include_declaration) =
+  find_variables_mexp pincl_mod
+and find_variables_mb ({ pmb_expr; _ }: Parsetree.module_binding) =
+  find_variables_mexp pmb_expr
+and find_variables_cls ({ pci_expr={ pcl_desc; _ }; _ }: Parsetree.class_declaration) =
+  match pcl_desc with
+  | Parsetree.Pcl_constr (_, _) -> []
+  | Parsetree.Pcl_structure cs -> find_variables_cs cs
+  | Parsetree.Pcl_fun (lab, default_expr, patter, csexp) ->
+    let bound_variables = match lab with
+      | Asttypes.Nolabel -> []
+      | Asttypes.Optional string
+      | Asttypes.Labelled string -> [string] in
+    let variables_in_deflt = Option.map ~f:find_variables_exp default_expr
+                             |> Option.value ~default:[] in
+    let bound_variables = bound_variables @ (find_variables_pat patter) in
+    let variables_in_csexp = variables_in_deflt @ find_variables_csexp csexp  in
+    let variables = subtract variables_in_csexp bound_variables in 
+    dedup variables
+  | Parsetree.Pcl_apply (csexp, exprs) ->
+    let variables_in_csexp = find_variables_csexp csexp in
+    let exprs = List.map ~f:snd exprs |> List.concat_map ~f:find_variables_exp in
+    let variables = variables_in_csexp @ exprs in 
+    dedup variables
+  | Parsetree.Pcl_let (_, vbs, body) ->
+    let (bound_variables, used_variables) =
+      List.fold ~init:([],[]) ~f:(fun (bound,used) bop ->
+          let (b, u) = find_variables_vb bop in
+          let u = subtract u bound in
+          let bound = bound @ b in 
+          let used = used @ u in
+          (bound,used)
+        ) vbs
+    in 
+    let expr_variables = find_variables_csexp body in
+    let expr_variables = subtract expr_variables bound_variables in
+    let all_variables = used_variables @ expr_variables in
+    dedup all_variables
+  | Parsetree.Pcl_constraint (csexp, ct) ->
+    find_variables_csexp csexp @ find_variables_ct ct
+  | Parsetree.Pcl_extension ext -> find_variables_ext ext
+  | Parsetree.Pcl_open ( _, csexp) ->
+    let variables =  find_variables_csexp csexp in
+    dedup variables
+and find_variables_ctdcl ({    pci_expr; _ }: Parsetree.class_type_declaration) =
+  find_variables_ct pci_expr
+and find_variables_cs { pcstr_self; pcstr_fields } =
+    let (bound_variables, used_variables) =
+      List.fold ~init:([],[]) ~f:(fun (bound,used) bop ->
+          let (b, u) = find_variables_cf bop in
+          let u = subtract u bound in
+          let bound = bound @ b in 
+          let used = used @ u in
+          (bound,used)
+        ) pcstr_fields
+    in 
+    let bound_variables = (find_variables_pat pcstr_self) @ bound_variables  in
+    let bound_variables = dedup bound_variables in 
+    let expr_variables = subtract used_variables bound_variables in
+    dedup expr_variables
+and find_variables_cf ({ pcf_desc; _ }: Parsetree.class_field) =
+  match pcf_desc with
+  | Parsetree.Pcf_inherit (_, csexp, name) -> find_variables_csexp csexp,
+                                              (name
+                                               |> Option.map
+                                                 ~f:(fun ({ txt; _ }: string Asttypes.loc) -> txt)
+                                               |> Option.to_list)
+  | Parsetree.Pcf_val ({ txt; _ }, _, cfk) ->
+    find_variables_cfk cfk, [txt]
+  | Parsetree.Pcf_method ({ txt; _ }, _, cfk) ->
+    find_variables_cfk cfk, [txt]
+  | Parsetree.Pcf_constraint _ -> [],[]
+  | Parsetree.Pcf_initializer exp -> find_variables_exp exp,[]
+  | Parsetree.Pcf_attribute _ -> [], []
+  | Parsetree.Pcf_extension ext -> find_variables_ext ext,[]
+and find_variables_ct ({ pcty_desc; _ }: Parsetree.class_type) =
+  match pcty_desc with
+  | Parsetree.Pcty_constr (_, _) -> []
+  | Parsetree.Pcty_signature csi -> find_variables_csi csi
+  | Parsetree.Pcty_arrow (lab, _, ct) ->
+    let bound_variables = match lab with
+      | Asttypes.Nolabel -> []
+      | Asttypes.Optional string
+      | Asttypes.Labelled string -> [string] in
+    let ct_variables = find_variables_ct ct in
+    let ct_variables = subtract ct_variables bound_variables in 
+    dedup ct_variables
+  | Parsetree.Pcty_extension ext -> find_variables_ext ext
+  | Parsetree.Pcty_open (_, ct) ->
+    let all_variables = find_variables_ct ct in
+    dedup all_variables
+and find_variables_csi ({ pcsig_fields; _ }: Parsetree.class_signature) =
+  List.concat_map ~f:find_variables_ctf pcsig_fields
+and find_variables_ctf ({ pctf_desc; _ }: Parsetree.class_type_field) =
+  match pctf_desc with
+  | Parsetree.Pctf_inherit ct -> find_variables_ct ct
+  | Parsetree.Pctf_val _ -> []
+  | Parsetree.Pctf_method _ -> []
+  | Parsetree.Pctf_constraint _ -> []
+  | Parsetree.Pctf_attribute _ -> []
+  | Parsetree.Pctf_extension ext -> find_variables_ext ext
+and find_variables_cfk (cfk: Parsetree.class_field_kind) =
+  match cfk with
+  | Parsetree.Cfk_virtual _ -> []
+  | Parsetree.Cfk_concrete (_, exp) -> find_variables_exp exp
+and find_variables_csexp ({ pcl_desc; _ }: Parsetree.class_expr) =
+  match pcl_desc with
+  | Parsetree.Pcl_constr (_, _) -> []
+  | Parsetree.Pcl_structure cs -> find_variables_cs cs
+  | Parsetree.Pcl_fun (lab, default_expr, patter, csexp) ->
+    let bound_variables = match lab with
+      | Asttypes.Nolabel -> []
+      | Asttypes.Optional string
+      | Asttypes.Labelled string -> [string] in
+    let variables_in_deflt = Option.map ~f:find_variables_exp default_expr
+                             |> Option.value ~default:[] in
+    let bound_variables = bound_variables @ (find_variables_pat patter) in
+    let variables_in_csexp = variables_in_deflt @ find_variables_csexp csexp  in
+    let variables = subtract variables_in_csexp bound_variables in 
+    dedup variables
+  | Parsetree.Pcl_apply (csexp, exprs) ->
+    let cs_expr_vari = find_variables_csexp csexp in
+    let exprs = List.map ~f:snd exprs |> List.concat_map ~f:find_variables_exp in
+    let all_variables = cs_expr_vari @ exprs in 
+    dedup all_variables
+  | Parsetree.Pcl_let (_, vbs, body) ->
+    let (bound_variables, used_variables) =
+      List.fold ~init:([],[]) ~f:(fun (bound,used) bop ->
+          let (b, u) = find_variables_vb bop in
+          let u = subtract u bound in
+          let bound = bound @ b in 
+          let used = used @ u in
+          (bound,used)
+        ) vbs
+    in 
+    let expr_variables = find_variables_csexp body in
+    let expr_variables = subtract expr_variables bound_variables in
+    let all_variables = used_variables @ expr_variables in
+    dedup all_variables
+  | Parsetree.Pcl_constraint (_, _) -> []
+  | Parsetree.Pcl_extension ext -> find_variables_ext ext
+  | Parsetree.Pcl_open (_, cexp) ->
+    dedup (find_variables_csexp cexp)
+and find_variables_mtdcl ({ pmtd_type; _ }: Parsetree.module_type_declaration) =
+  Option.map pmtd_type ~f:find_variables_mt |> Option.value ~default:[]
+and find_variables_mt ({ pmty_desc; _ }: Parsetree.module_type) =
+  match pmty_desc with
+  | Parsetree.Pmty_ident _ -> []
+  | Parsetree.Pmty_signature _ -> []
+  | Parsetree.Pmty_functor (_, omt, mt) ->
+    let param_mt = Option.map ~f:find_variables_mt omt |> Option.value ~default:[] in
+    let expr_mt = find_variables_mt mt in
+    param_mt @ expr_mt
+  | Parsetree.Pmty_with (mt, _) -> find_variables_mt mt
+  | Parsetree.Pmty_typeof mexp -> find_variables_mexp mexp
+  | Parsetree.Pmty_extension ext -> find_variables_ext ext
+  | Parsetree.Pmty_alias _ -> []
 and find_variables_ext ((_, pylod): Parsetree.extension) =
   match pylod with
   | Parsetree.PStr _ -> assert false
@@ -164,7 +360,7 @@ and find_variables_pat ({ ppat_desc; _ }: Parsetree.pattern) : string list =
   match ppat_desc with
   | Parsetree.Ppat_any -> []
   | Parsetree.Ppat_var { txt; _ } -> [txt]
-  | Parsetree.Ppat_alias (pat, { txt; _ }) ->
+  | Parsetree.Ppat_alias (pat, { txt; _ }) -> (* (Some v) as x *)
     find_variables_pat pat @ [txt]
   | Parsetree.Ppat_constant _ -> []
   | Parsetree.Ppat_interval (_, _) -> []

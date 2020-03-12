@@ -419,7 +419,16 @@ let define_functions () =
     (let open Defun.Let_syntax in
      let%map_open point = required "point" Value.Type.int  in
      let op = Gopcaml_state.inside_defun ~state_var:Variables.state_var in
-     op point)
+     op point);
+  defun
+    ("gopcaml-find-free-variables" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Returns a list of free variables in the given STRING. |}
+    (Returns (Value.Type.list Value.Type.string))
+    (let open Defun.Let_syntax in
+     let%map_open str = required "string" Value.Type.string  in
+     let vars = Gopcaml_state.find_variables_region str in
+     vars)
 
 let gopcaml_mode =
   let sym = ("gopcaml-mode" |> Symbol.intern) in
