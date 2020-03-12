@@ -428,7 +428,18 @@ let define_functions () =
     (let open Defun.Let_syntax in
      let%map_open str = required "string" Value.Type.string  in
      let vars = Gopcaml_state.find_variables_region str in
-     vars)
+     vars);
+  defun
+    ("gopcaml-find-extract-scope" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Returns the scope to extract a given region to. |}
+    (Returns (Value.Type.option (Value.Type.tuple Position.type_ Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open str = required "string" Value.Type.string
+     and startp = required "beg" Position.type_
+     and endp = required "end" Position.type_ in
+     let vars = Gopcaml_state.find_extract_start_scope ~state_var:Variables.state_var startp endp str in
+     vars ())
 
 let gopcaml_mode =
   let sym = ("gopcaml-mode" |> Symbol.intern) in

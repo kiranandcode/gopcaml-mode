@@ -948,10 +948,14 @@ END is the end of the edited text region."
 (defun gopcaml-list-free-variables (start end)
   "list free variables in region"
   (interactive "^r")
-  (let ((text (buffer-substring-no-properties start end)))
-    (when (and text)
+  (let ((text (buffer-substring-no-properties start end))
+	bounds)
+    (setq bounds (car (gopcaml-find-extract-scope text start end)))
+    (message "got %s" bounds)
+    (when (and bounds)
       (message text)
-      (princ-list (gopcaml-find-free-variables text)))    
+      (gopcaml-temporarily-highlight-region bounds)
+      )
    ))
 
 (defun gopcaml-setup-bindings ()

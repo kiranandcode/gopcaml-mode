@@ -1142,3 +1142,27 @@ let find_variables_region text =
   Ast_analysis.find_variables_exp exp
 
 
+(** find the closest scope containing all variables used by the current expression  *)
+let find_extract_start_scope ?current_buffer ~state_var st_p ed_p text () =
+  let variables = find_variables_region text in 
+  retrieve_gopcaml_state_immediate ?current_buffer ~state_var ()
+  |> Option.bind ~f:(fun v -> find_enclosing_structure v st_p)
+  |> Option.bind ~f:(fun (State.MkParseItem it: State.parse_item) ->
+      match it with
+      | State.ImplIt (_,si) ->
+        let scopes = snd (Ast_analysis.find_scopes_si si) in
+        let st_p,ed_p = Position.to_int st_p - 1, Position.to_int ed_p - 1 in 
+        let selected_scope =
+          Ast_analysis.find_lub_scope variables scopes (st_p,ed_p)
+        in
+        let selected_scope =
+          match selected_scope with
+          | None ->
+            Ast_analysis.find_smallest_enclosing_scope scopes (st_p, ed_p)
+          | v -> v
+        in
+        selected_scope
+      | State.IntfIt (_, _) -> None
+    )
+  |> Option.map ~f:(fun (s,e) -> (Position.of_int_exn (s + 1), Position.of_int_exn (e + 1)))
+
