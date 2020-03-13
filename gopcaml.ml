@@ -459,8 +459,12 @@ let define_functions () =
      let%map_open point = required "point" Position.type_
      and matches =
        required "matches" (Value.Type.list (Value.Type.tuple Position.type_ Position.type_))
+     and startp = required "beg" Position.type_
+     and endp = required "end" Position.type_
      in
-     let vars = Gopcaml_state.find_extraction_matches ~state_var:Variables.state_var point matches in
+     let vars =
+       Gopcaml_state.find_extraction_matches
+         ~state_var:Variables.state_var point matches (startp,endp) in
      vars ())
 
 let gopcaml_mode =

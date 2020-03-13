@@ -1291,6 +1291,16 @@ let find_smallest_enclosing_scope  (scopes: scope list) (startp,endp) =
       loop t acc
   in
   loop scopes None
+
+(** return list of scopes that should be excluded  *)
+let find_excluded_scopes (scopes: scope list) (startp,endp)  =
+  let contains_point (_,s1,e1)  =
+    startp < s1 && e1 < endp
+  in
+  List.filter ~f:contains_point scopes
+  |> List.map ~f:(fun (_,s1,e1) -> (s1,e1))
+  
+
   
 let find_valid_matches (matches: _ list) (patterns: _ list) =
   let contained_by  (s2,e2) (s1,e1)  =

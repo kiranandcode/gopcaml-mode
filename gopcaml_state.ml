@@ -1178,6 +1178,18 @@ let find_patterns_in_current_internal ?current_buffer ~state_var point =
       | State.IntfIt (_, _) -> []
     )
 
+(** find patterns in enclosing item  *)
+let find_excluded_scopes_in_current_internal ?current_buffer ~state_var point (startp,endp) =
+  retrieve_gopcaml_state_immediate ?current_buffer ~state_var ()
+  |> Option.bind ~f:(fun v -> find_enclosing_structure v point)
+  |> Option.map ~f:(fun (State.MkParseItem it: State.parse_item) ->
+      match it with
+      | State.ImplIt (_,si) ->
+        let scopes = snd (Ast_analysis.find_scopes_si si) in
+        let pat_scopes = (Ast_analysis.find_pattern_scopes_si si) in
+        Ast_analysis.find_excluded_scopes scopes (startp,endp) @ pat_scopes
+      | State.IntfIt (_, _) -> []
+    )
 
 (** find patterns in enclosing item  *)
 let find_patterns_in_current ?current_buffer ~state_var point () =
@@ -1191,9 +1203,10 @@ let find_patterns_in_current ?current_buffer ~state_var point () =
 
 (** given a list of matching regions for the current scope, returns those that correspond
     to valid matches  *)
-let find_extraction_matches ?current_buffer ~state_var point matches () =
+let find_extraction_matches ?current_buffer ~state_var point matches (start_p,end_p) () =
+  let (start_p,end_p) = Position.to_int start_p - 1, Position.to_int end_p - 1 in 
   let matches = List.map ~f:(fun (a,b) -> Position.to_int a - 1, Position.to_int b - 1) matches in 
-  find_patterns_in_current_internal ?current_buffer ~state_var point
+  find_excluded_scopes_in_current_internal ?current_buffer ~state_var point (start_p,end_p)
   |> Option.map ~f:(Ast_analysis.find_valid_matches matches)
   |> Option.map ~f:(List.map ~f:(fun (st_p,ed_p) ->
             let st_p,ed_p = Position.of_int_exn (st_p + 1), Position.of_int_exn (ed_p + 1) in 

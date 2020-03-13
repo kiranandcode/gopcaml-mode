@@ -1009,7 +1009,7 @@ END is the end of the edited text region."
 	;; retrieve list of matches in scope
 	(setq matches (match-seq text (car bounds) (cdr bounds)))
 	;; find which matches are valid
-	(setq matches (gopcaml-find-valid-matches (car bounds) matches))
+	(setq matches (gopcaml-find-valid-matches (car bounds) matches (car bounds) (cdr bounds)))
 	(when matches
 	  (push-mark)
 	  ;; now we have a list of valid matches and a point to insert them
