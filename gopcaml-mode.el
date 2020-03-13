@@ -13,6 +13,7 @@
 ;; load in merlin/ocp deps
 (require 'ocp-indent)
 (require 'merlin)
+(require 'multiple-cursors)
 
 (defgroup gopcaml-faces nil
   "Faces for gopcaml mode."
@@ -79,6 +80,22 @@ removes all existing overlays of type GROUP if present."
     ;; wait for user input
     (unwind-protect
 	(sit-for 60) (gopcaml-remove-stored-overlays group))))
+
+(defun gopcaml-temporarily-highlight-multiple-region (mbounds &optional group face)
+  "Temporarily highlight regions listed in MBOUNDS using FACE.
+removes all existing overlays of type GROUP if present."
+  (unless face
+    (setq face 'gopcaml-highlight-face))
+  ;; when group is present, remove all existing overlays of the same group
+  (gopcaml-remove-stored-overlays group)
+  (dolist (bounds mbounds)
+    (lexical-let ((overlay (make-overlay (car bounds) (cdr bounds))))
+    (overlay-put overlay 'face face)
+    (gopcaml-store-overlays overlay group)))
+  ;; wait for user input
+  (unwind-protect
+      (sit-for 60) (gopcaml-remove-stored-overlays group))
+  )
 
 (defun gopcaml-highlight-current-structure-item ()
   "Highlight the structure-item enclosing the current point."
@@ -956,7 +973,87 @@ END is the end of the edited text region."
       (message text)
       (gopcaml-temporarily-highlight-region bounds)
       )
-   ))
+    ))
+(defun gopcaml-list-pattern-scopes ()
+  "Highlight all patterns in the current item."
+  (interactive)
+  (let ((mbounds (gopcaml-find-patterns-in-scope (point))))
+    (when mbounds
+      (gopcaml-temporarily-highlight-multiple-region mbounds))))
+
+(defun match-seq (pattern beg end)
+  "Return a list of all matches of PATTERN in region from BEG to END."
+  (let (matches)
+    (save-excursion
+      (goto-char beg)
+      (save-match-data
+	(while (search-forward pattern end t)
+	  (push (cons (match-beginning 0) (match-end 0)) matches)
+	  (goto-char (match-end 0)))
+	matches))))
+
+(defun highlight-occurrances-in-region (beg end)
+  "Highlight all ocurrances of a string in the region from BEG to END."
+  (interactive "^r")
+  (gopcaml-temporarily-highlight-multiple-region (match-seq (read-string "Search string:") beg end))
+)
+
+(defun gopcaml-extract-expression (start end)
+  "Attempt to extract the expression in the current region START END."
+  (interactive "^r")
+  (when (and gopcaml-state (gopcaml-state-available-filter) (< (mc/num-cursors) 2))
+    (let ((text (buffer-substring-no-properties start end))
+	  bounds matches marks master)
+      (setq bounds (car (gopcaml-find-extract-scope text start end)))
+      (when (and bounds)
+	;; retrieve list of matches in scope
+	(setq matches (match-seq text (car bounds) (cdr bounds)))
+	;; find which matches are valid
+	(setq matches (gopcaml-find-valid-matches (car bounds) matches))
+	(when matches
+	  (push-mark)
+	  ;; now we have a list of valid matches and a point to insert them
+	  ;; convert each match to a list of markers
+	  (dolist (match matches)
+	    (push (cons
+		   (set-marker (make-marker) (+ (car match) 1))
+		   (set-marker (make-marker) (cdr match))
+		   ) marks)
+	    )
+	  ;; now ready to edit
+	  (goto-char (car bounds))
+	  (setq text (string-join (list text " in\n" (make-string (current-column) 32)) "") )
+	  (insert (format "let  = %s" text))
+
+	  ;; move to insert point
+	  (goto-char (+ (car bounds) 4))
+	  (setq master (point))
+	  (push-mark master)
+	  ;; remove fake cursors if present
+	  (mc/remove-fake-cursors)
+	  (mc/save-excursion
+	   ;; delete all the ocurrances
+	   (dolist (mark marks)
+	     (let ((start (car mark)) (end (cdr mark)))
+	       ;; move to start of ocurrance
+	       (push-mark (-(marker-position start) 1))
+	       (exchange-point-and-mark)
+	       ;; delete ocurrance
+	       (delete-region
+		(- (marker-position start) 1) (marker-position end))
+	       ;; create cursor at the point
+	       (mc/create-fake-cursor-at-point)
+	       ;; clean up the markers
+	       (set-marker start nil)
+	       (set-marker end nil)
+	       )
+	     ))
+	  ;; finally enable multiple-cursors-mode
+	  (mc/maybe-multiple-cursors-mode)
+	  )
+	)
+      ))
+  )
 
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
@@ -1008,6 +1105,7 @@ END is the end of the edited text region."
     (kbd "C-c C-p")
     '(menu-item "" gopcaml-goto-nearest-pattern
 		:filter gopcaml-state-filter))
+  (define-key gopcaml-mode-map (kbd "C-c C-e") #'gopcaml-extract-expression )
 
   (define-key gopcaml-mode-map (kbd "C-M-@")
     '(menu-item "" gopcaml-zipper-mark-mode

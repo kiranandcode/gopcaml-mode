@@ -439,6 +439,28 @@ let define_functions () =
      and startp = required "beg" Position.type_
      and endp = required "end" Position.type_ in
      let vars = Gopcaml_state.find_extract_start_scope ~state_var:Variables.state_var startp endp str in
+     vars ());
+  defun
+    ("gopcaml-find-patterns-in-scope" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Returns the patterns around the current item. |}
+    (Returns (Value.Type.list (Value.Type.tuple Position.type_ Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" Position.type_ in
+     let vars = Gopcaml_state.find_patterns_in_current
+         ~state_var:Variables.state_var point in
+     vars ());
+  defun
+    ("gopcaml-find-valid-matches" |> Symbol.intern)
+    [%here]
+    ~docstring:{| Given a list of matches in the current scope, returns those that are valid. |}
+    (Returns (Value.Type.list (Value.Type.tuple Position.type_ Position.type_)))
+    (let open Defun.Let_syntax in
+     let%map_open point = required "point" Position.type_
+     and matches =
+       required "matches" (Value.Type.list (Value.Type.tuple Position.type_ Position.type_))
+     in
+     let vars = Gopcaml_state.find_extraction_matches ~state_var:Variables.state_var point matches in
      vars ())
 
 let gopcaml_mode =

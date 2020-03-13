@@ -35,6 +35,10 @@ The ultimate ocaml editing mode.
 
 ![move-to-let-def](https://gitlab.com/gopiandcode/gopcaml-mode/-/raw/master/images/gopcaml_move_to_nearest_letdef.gif?inline=false)
 
+- Extract expression into letdef - `C-c C-e`
+
+![extract-expression](https://gitlab.com/gopiandcode/gopcaml-mode/-/raw/master/images/gopcaml_extraction_expressions.gif?inline=false)
+
 
 ## Installation
 Gopcaml mode is implemented using a mixture of ocaml and elisp.
