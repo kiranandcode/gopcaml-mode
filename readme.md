@@ -43,23 +43,21 @@ The ultimate ocaml editing mode.
 ## Installation
 Gopcaml mode is implemented using a mixture of ocaml and elisp.
 
-First, install the ocaml dependencies:
-- core
-- ppx_deriving 
-- ecaml 
-- ocaml-compiler-libs
-- ocaml-migrate-parsetree
-- extlib
-
-Clone the repo to some local directory and run `dune build` within the repo directory.
-
-Add the following to your init.el
-
-`
-(add-to-list 'load-path "<PATH-TO-GOPCAML-REPO>")
-
-(require 'gopcaml-mode)
-`
-
+- Install the project via opam:
+```sh
+opam install gopcaml-mode
+```
+- load the project in your init.el
+```elisp
+(let ((opam-share (ignore-errors (car (process-lines "opam" "config" "var" "share")))))
+   (when (and opam-share (file-directory-p opam-share))
+    ;; Register Gopcaml mode
+     (add-to-list 'load-path (expand-file-name "emacs/site-lisp" opam-share))
+     (autoload 'gopcaml-mode "gopcaml" nil t nil)
+     ;; Automatically start it in OCaml buffers
+     (add-hook 'tuareg-mode-hook 'gopcaml-mode t)
+     (add-hook 'caml-mode-hook 'gopcaml-mode t)
+     ))
+```
 
 Enjoy your ultimate editing experience.
