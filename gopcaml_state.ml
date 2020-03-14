@@ -166,12 +166,6 @@ module State = struct
           String.split ~on:'.' file_name
           |> List.last
           |> Option.bind ~f:(fun ext ->
-              message (Printf.sprintf "extension of %s is %s" file_name ext);
-              message (Printf.sprintf "impls: %s, intfs: %s"
-                         (String.concat ~sep:", " implementation_extensions)
-                         (String.concat ~sep:", " interface_extensions)
-                      );
-
               if List.mem ~equal:String.(=) implementation_extensions ext
               then begin
                 message "filetype is implementation";
@@ -193,10 +187,6 @@ module State = struct
       let buffer_text =
         Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
       let perform_parse () = 
-        let _ = let open Filetype in
-          match file_type with
-          | Interface -> message "filetype is interface."
-          | Implementation -> message "filetype is implementation." in
         message "Building parse tree - may take a while if the file is large...";
         let start_time = Time.now () in
         let parse_tree =
@@ -209,8 +199,8 @@ module State = struct
             build_interface_tree buffer_text
         in
         match parse_tree with
-        | Either.Second e -> 
-          message ("Could not build parse tree: " ^ ExtLib.dump e);
+        | Either.Second _e ->
+          message ("Could not build parse tree (syntax error)");
           None
         | Either.First tree ->
           let end_time = Time.now () in
@@ -222,12 +212,9 @@ module State = struct
       in
       if not @@ String.is_empty buffer_text then
         try perform_parse ()
-        with Parser.Error -> 
-          message (Printf.sprintf "parsing got error parse.error");
-          None
-           | Syntaxerr.Error _ ->
-             (* message (Printf.sprintf "gopcaml: syntax error" ); *)
-             None
+        with
+          Parser.Error -> message (Printf.sprintf "parsing got error parse.error"); None
+        | Syntaxerr.Error _ -> None
       else match file_type with
         | Interface -> Some (MkParseTree (Intf []))
         | Implementation -> Some (MkParseTree (Impl []))
@@ -870,7 +857,7 @@ let retrieve_enclosing_bounds ?current_buffer ~state_var point =
 
 let print_zipper =
   Option.map ~f:(fun zipper ->
-      Ecaml.message (Ast_zipper.describe_current_item zipper);
+      (* Ecaml.message (Ast_zipper.describe_current_item zipper); *)
       zipper)
 
 (** retrieve a zipper expression at the current position *)
@@ -912,8 +899,6 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
 
 (** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
 let find_nearest_defun ?current_buffer ~state_var point line =
-  (* Ecaml.message (Printf.sprintf "Starting find_nearest_defun with point %d"
-   *                  (Position.to_int point)); *)
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1) )
@@ -926,8 +911,6 @@ let find_nearest_defun ?current_buffer ~state_var point line =
 
 (** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
 let find_nearest_defun_end ?current_buffer ~state_var point line =
-  (* Ecaml.message (Printf.sprintf "Starting find_nearest_defun_end with point %d"
-   *                  (Position.to_int point)); *)
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
@@ -1135,11 +1118,15 @@ let zipper_move_down ?current_buffer ~zipper_var ()  =
 
 (** finds all variables in the given expression *)
 let find_variables_region text =
-  let exp =
-    let lexbuf = Lexing.from_string ~with_positions:true text in
-    Parse.expression lexbuf
-  in 
-  Ast_analysis.find_variables_exp exp
+  try
+    let exp =
+      let lexbuf = Lexing.from_string ~with_positions:true text in
+      Parse.expression lexbuf
+    in 
+    Ast_analysis.find_variables_exp exp
+  with
+    Parser.Error -> message (Printf.sprintf "parsing got error parse.error"); []
+  | Syntaxerr.Error _ -> []
 
 
 (** find the closest scope containing all variables used by the current expression  *)

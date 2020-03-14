@@ -1,19 +1,44 @@
-;;; gopcaml-mode -- ocaml editing mode
+;;; gopcaml-mode.el --- Structural Ocaml Editing     -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2020  Kiran Gopinathan
+
+;; Author: Kiran Gopinathan <kirang@comp.nus.edu.sg>
+;; Keywords: languages, tools
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 ;;; Commentary:
-;;; An extension of tuareg mode to provide a better editing experience.
+
+;; 
+
+;;; Code:
 
 ;; load in core Gopcaml library
-(require 'gopcaml (expand-file-name
-		   "./_build/default/gopcaml.so"
-		   (string-trim
-		    (shell-command-to-string (format "dirname %s" file)))))
+
+(let ((opam-lib (ignore-errors (car (process-lines "opam" "config" "var" "lib")))))
+  (if (and opam-lib (file-directory-p opam-lib))
+      (require 'gopcaml (expand-file-name "./gopcaml.so" opam-lib))
+    (error "Could not find opam - please make sure it is installed")
+    ))
+
 ;; load in emacs dependencies
 (require 'subr-x)
-(require 'smartparens)
 ;; load in merlin/ocp deps
 (require 'ocp-indent)
 (require 'merlin)
-(require 'multiple-cursors)
+
+;;; Code:
 
 (defgroup gopcaml-faces nil
   "Faces for gopcaml mode."
@@ -90,8 +115,8 @@ removes all existing overlays of type GROUP if present."
   (gopcaml-remove-stored-overlays group)
   (dolist (bounds mbounds)
     (lexical-let ((overlay (make-overlay (car bounds) (cdr bounds))))
-    (overlay-put overlay 'face face)
-    (gopcaml-store-overlays overlay group)))
+      (overlay-put overlay 'face face)
+      (gopcaml-store-overlays overlay group)))
   ;; wait for user input
   (unwind-protect
       (sit-for 60) (gopcaml-remove-stored-overlays group))
@@ -179,7 +204,7 @@ removes all existing overlays of type GROUP if present."
       nil)))
 
 (defun gopcaml-zipper-mode-and-move (operation &optional
-zipper-constructor selection-mode direction skip-zipper-mode)
+					       zipper-constructor selection-mode direction skip-zipper-mode)
   "Start gopcaml-zipper mode using ZIPPER-CONSTRUCTOR and perform OPERATION.
 SELECTION-MODE indicates whether this was called in the context
 of an existing selection, allowing for some slightly more
@@ -255,7 +280,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 		      )))))
 	      (gopcaml-delete-zipper)
 	      (when skip-zipper-mode
-		  (goto-char starting-pos))
+		(goto-char starting-pos))
 	      nil
 	      )))
       ;; otherwise just perfom operation
@@ -285,9 +310,9 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 
 	  (let ((area
 		 (car (gopcaml-build-zipper
-			       (point)
-			       (line-number-at-pos)
-			       nil)))
+		       (point)
+		       (line-number-at-pos)
+		       nil)))
 		start end overlay)
 	    ;; if successfull then perform operation
 	    (if area
@@ -299,8 +324,8 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 		  (setq gopcaml-zipper-overlay overlay)
 		  (setq gopcaml-zipper-mode-quit
 			(set-transient-map
-		   gopcaml-mark-zipper-mode-map
-		   t #'gopcaml-on-exit-zipper-mode))
+			 gopcaml-mark-zipper-mode-map
+			 t #'gopcaml-on-exit-zipper-mode))
 		  ;; (funcall operation t)
 		  (if selection-active
 		      (progn
@@ -337,17 +362,17 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 
 (defun gopcaml-get-current-item-bounds ()
   "Return the bounds of the current item."
-    (gopcaml-zipper-mode-and-move
-     (lambda (_) (gopcaml-move-zipper-up)) nil nil 'forward t)
-)
+  (gopcaml-zipper-mode-and-move
+   (lambda (_) (gopcaml-move-zipper-up)) nil nil 'forward t)
+  )
 
 (defun gopcaml-indent-current-sexp ()
   "Indent the current sexp."
   (interactive)
   (let ((area (gopcaml-get-current-item-bounds)))
-      (when area
-	(ocp-indent-region (car area) (cadr area))))
-)
+    (when area
+      (ocp-indent-region (car area) (cadr area))))
+  )
 
 (defun gopcaml-beginning-defun ()
   "Move backwards to the beginning of the defun."
@@ -521,7 +546,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 				'backward))
 
 (defun gopcaml-backward-sexp (&optional arg)
-  "Move the zipper dow (from expression at point)."
+  "Move the zipper down (from expression at point)."
   (interactive "p")
   (gopcaml-backward-sexp-full nil arg))
 
@@ -573,33 +598,33 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   "Ensures-spacing between current element."
   (message "%s" (car (gopcaml-zipper-is-top-level)))
   (if (and (car (gopcaml-zipper-is-top-level)) (car (gopcaml-zipper-is-top-level-parent)))
-        (let
-      ((area (car (gopcaml-retrieve-zipper-bounds)))
-       start end
-       pre-change
-       post-change)
-    (when area
-      (setq start (car area))
-      (setq end (cadr area))
-      (goto-char end)
-      (setq post-change (gopcaml-ensure-space-between-forward))
-      (setq post-change
-	    (list
-	     (-  (car post-change)  (cadr post-change))
-	     (-  (caddr post-change) (cadddr post-change) ))
-	    )
-      (goto-char start)
-      (setq pre-change (gopcaml-ensure-space-between-backward))
-      (setq pre-change
-	    (list
-	     (- (cadr pre-change) (car pre-change))
-	     (- (cadddr pre-change) (caddr pre-change))))
-      (setq area (car (gopcaml-zipper-space-update
-		       (car pre-change) (cadr pre-change)
-		       (car post-change) (cadr post-change))))
-      (when area
-	(move-overlay gopcaml-zipper-overlay (car area) (cadr area))
-	t)))
+      (let
+	  ((area (car (gopcaml-retrieve-zipper-bounds)))
+	   start end
+	   pre-change
+	   post-change)
+	(when area
+	  (setq start (car area))
+	  (setq end (cadr area))
+	  (goto-char end)
+	  (setq post-change (gopcaml-ensure-space-between-forward))
+	  (setq post-change
+		(list
+		 (-  (car post-change)  (cadr post-change))
+		 (-  (caddr post-change) (cadddr post-change) ))
+		)
+	  (goto-char start)
+	  (setq pre-change (gopcaml-ensure-space-between-backward))
+	  (setq pre-change
+		(list
+		 (- (cadr pre-change) (car pre-change))
+		 (- (cadddr pre-change) (caddr pre-change))))
+	  (setq area (car (gopcaml-zipper-space-update
+			   (car pre-change) (cadr pre-change)
+			   (car post-change) (cadr post-change))))
+	  (when area
+	    (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+	    t)))
     nil))
 
 (defun gopcaml-zipper-type ()
@@ -640,18 +665,18 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   (let (area insert-pos start end text)
     (setq area (car (funcall move-fn)))
     (when area
-          (setq insert-pos (car area))
-    (setq start (cadr area))
-    (setq end (caddr area))
-    (setq text (buffer-substring-no-properties start end))
-    (delete-region start end)
-    (goto-char insert-pos)
-    (insert "\n\n")
-    (insert text)
-    (insert "\n")
-    (setq area (car (gopcaml-retrieve-zipper-bounds)))
-    (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
-    (goto-char (car area))
+      (setq insert-pos (car area))
+      (setq start (cadr area))
+      (setq end (caddr area))
+      (setq text (buffer-substring-no-properties start end))
+      (delete-region start end)
+      (goto-char insert-pos)
+      (insert "\n\n")
+      (insert text)
+      (insert "\n")
+      (setq area (car (gopcaml-retrieve-zipper-bounds)))
+      (move-overlay gopcaml-zipper-overlay (car area) (cadr area))
+      (goto-char (car area))
       )
     ))
 
@@ -800,25 +825,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   "Determines whether a CMD can be carried out in current Gopcaml mode state."
   (when (and gopcaml-state(gopcaml-state-available-filter))
     cmd))
-(defun gopcaml-state-sexp-filter (cmd)
-  "Determines whether a CMD can be carried out in current Gopcaml mode state
-or whether a smart-parens based operation is more suitable."
-  (cond
-   ;; if we're looking at a opening or closing parens - smart parens
-   ;; is better
-   ((or
-     (save-match-data
-      (sp--looking-back (sp--get-closing-regexp
-			 (sp--get-pair-list-context 'navigate))))
-     (save-match-data
-      (sp--looking-at (sp--get-opening-regexp
-		       (sp--get-pair-list-context 'navigate))))
-     ) nil)
-   ((and gopcaml-state (gopcaml-state-available-filter))
-    cmd
-    )
-   )
-  )
+
 
 (defun gopcaml-zipper-kill ()
   "Deletes the current item and exits zipper mode."
@@ -849,8 +856,8 @@ or whether a smart-parens based operation is more suitable."
       '(menu-item "" gopcaml-forward-list))
     (define-key gopcaml-map (kbd "C-M-p")
       '(menu-item "" gopcaml-backward-list))
-    (define-key gopcaml-map (kbd "C-M-w")
-      #'gopcaml-zipper-kill)
+    ;; (define-key gopcaml-map (kbd "C-M-w")
+    ;;   #'gopcaml-zipper-kill)
     ;; (define-key gopcaml-map (kbd "C-M-w")
     ;;   '(menu-item "" (lambda () (interactive) (move-gopcaml-zipper #'gopcaml-zipper-kill-region))
     ;; 		  ))
@@ -877,10 +884,6 @@ or whether a smart-parens based operation is more suitable."
     (define-key gopcaml-map (kbd "C-M-SPC")
       '(menu-item "" (lambda () (interactive) (gopcaml-zipper-ensure-space))))
 
-    ;; (define-key gopcaml-map (kbd "T") '(lambda ()
-    ;; 					 (interactive)
-    ;; 					 (gopcaml-zipper-type)))
-    ;; (define-key gopcaml-map (kbd "i") #'gopcaml-zipper-insert-letdef)
     gopcaml-map)
   "Map used when in zipper mode.  ari ari!")
 
@@ -949,9 +952,7 @@ END is the end of the edited text region."
       (setq element (buffer-substring-no-properties  point (+ point 4)))
       (if (equal "(??)" element)
 	  (delete-region point (+ point 4))
-	)
-      )
-    ))
+	))))
 
 
 (defun gopcaml-type-hole-needed ()
@@ -963,7 +964,7 @@ END is the end of the edited text region."
   )
 
 (defun gopcaml-list-free-variables (start end)
-  "list free variables in region"
+  "List free variables in region from START to END."
   (interactive "^r")
   (let ((text (buffer-substring-no-properties start end))
 	bounds)
@@ -982,7 +983,7 @@ END is the end of the edited text region."
       (gopcaml-temporarily-highlight-multiple-region mbounds))))
 
 (defun match-seq (pattern beg end)
-  "Return a list of all matches of PATTERN in region from BEG to END."
+  "Return a list of all ocurrances of PATTERN in region from BEG to END."
   (let (matches)
     (save-excursion
       (goto-char beg)
@@ -996,125 +997,67 @@ END is the end of the edited text region."
   "Highlight all ocurrances of a string in the region from BEG to END."
   (interactive "^r")
   (gopcaml-temporarily-highlight-multiple-region (match-seq (read-string "Search string:") beg end))
-)
-
-(defun gopcaml-extract-expression (start end)
-  "Attempt to extract the expression in the current region START END."
-  (interactive "^r")
-  (when (and gopcaml-state (gopcaml-state-available-filter) (< (mc/num-cursors) 2))
-    (let ((text (buffer-substring-no-properties start end))
-	  bounds matches marks master)
-      (setq bounds (car (gopcaml-find-extract-scope text start end)))
-      (when (and bounds)
-	;; retrieve list of matches in scope
-	(setq matches (match-seq text (car bounds) (cdr bounds)))
-	;; find which matches are valid
-	(setq matches (gopcaml-find-valid-matches (car bounds) matches (car bounds) (cdr bounds)))
-	(when matches
-	  (push-mark)
-	  ;; now we have a list of valid matches and a point to insert them
-	  ;; convert each match to a list of markers
-	  (dolist (match matches)
-	    (push (cons
-		   (set-marker (make-marker) (+ (car match) 1))
-		   (set-marker (make-marker) (cdr match))
-		   ) marks)
-	    )
-	  ;; now ready to edit
-	  (goto-char (car bounds))
-	  (setq text (string-join (list text " in\n" (make-string (current-column) 32)) "") )
-	  (insert (format "let  = %s" text))
-
-	  ;; move to insert point
-	  (goto-char (+ (car bounds) 4))
-	  (setq master (point))
-	  (push-mark master)
-	  ;; remove fake cursors if present
-	  (mc/remove-fake-cursors)
-	  (mc/save-excursion
-	   ;; delete all the ocurrances
-	   (dolist (mark marks)
-	     (let ((start (car mark)) (end (cdr mark)))
-	       ;; move to start of ocurrance
-	       (push-mark (-(marker-position start) 1))
-	       (exchange-point-and-mark)
-	       ;; delete ocurrance
-	       (delete-region
-		(- (marker-position start) 1) (marker-position end))
-	       ;; create cursor at the point
-	       (mc/create-fake-cursor-at-point)
-	       ;; clean up the markers
-	       (set-marker start nil)
-	       (set-marker end nil)
-	       )
-	     ))
-	  ;; finally enable multiple-cursors-mode
-	  (mc/maybe-multiple-cursors-mode)
-	  )
-	)
-      ))
   )
+
+;;; setup keybindings
+
+(define-key gopcaml-mode-map (kbd "TAB") #'gopcaml-move-to-hole)
+(define-key gopcaml-mode-map (kbd "<backtab>") #'gopcaml-move-backward-to-hole)
+(define-key gopcaml-mode-map (kbd "M-RET") #'gopcaml-mode-insert-type-hole)
+(define-key gopcaml-mode-map (kbd "C-M-u") '(menu-item "" gopcaml-backward-up-list
+						       :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-q") '(menu-item "" gopcaml-indent-current-sexp
+						       :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-d") '(menu-item "" gopcaml-down-list
+						       :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-n") '(menu-item "" gopcaml-forward-list
+						       :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-p") '(menu-item "" gopcaml-backward-list
+						       :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-t") '(menu-item "" gopcaml-zipper-transpose
+						       :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-S-u") '(menu-item "" gopcaml-backward-up-list-selection
+							 :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-S-d") '(menu-item "" gopcaml-down-list-selection
+							 :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-S-n") '(menu-item "" gopcaml-forward-list-selection
+							 :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-S-p") '(menu-item "" gopcaml-backward-list-selection
+							 :filter gopcaml-state-filter))
+
+(define-key merlin-mode-map (kbd "C-c C-o") '(menu-item "" gopcaml-goto-nearest-letdef
+							:filter gopcaml-state-filter))
+
+(define-key merlin-mode-map (kbd "C-c C-p") '(menu-item "" gopcaml-goto-nearest-pattern
+							:filter gopcaml-state-filter))
+
+(define-key gopcaml-mode-map (kbd "C-M-@") '(menu-item "" gopcaml-zipper-mark-mode
+						       :filter gopcaml-state-filter))
+(define-key gopcaml-mode-map (kbd "C-M-SPC") '(menu-item "" gopcaml-zipper-mark-mode
+							 :filter gopcaml-state-filter))
 
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
   (setq-local end-of-defun-function #'gopcaml-end-defun)
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
-  (define-key gopcaml-mode-map (kbd "TAB") #'gopcaml-move-to-hole)
-  (define-key gopcaml-mode-map (kbd "<backtab>") #'gopcaml-move-backward-to-hole)
-  (define-key gopcaml-mode-map (kbd "M-RET") #'gopcaml-mode-insert-type-hole)
-  (define-key gopcaml-mode-map (kbd "C-M-u") '(menu-item "" gopcaml-backward-up-list
-							 :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-q") '(menu-item "" gopcaml-indent-current-sexp
-							 :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-d") '(menu-item "" gopcaml-down-list
-							 :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-n") '(menu-item "" gopcaml-forward-list
-							 :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-p") '(menu-item "" gopcaml-backward-list
-							 :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-f") '(menu-item "" gopcaml-forward-sexp
-							 :filter gopcaml-state-sexp-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-b") '(menu-item "" gopcaml-backward-sexp
-							 :filter gopcaml-state-sexp-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-t") '(menu-item "" gopcaml-zipper-transpose
-							 :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-S-u") '(menu-item "" gopcaml-backward-up-list-selection
-							   :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-S-d") '(menu-item "" gopcaml-down-list-selection
-							   :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-S-n") '(menu-item "" gopcaml-forward-list-selection
-							   :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-S-p") '(menu-item "" gopcaml-backward-list-selection
-							   :filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-S-f") '(menu-item "" gopcaml-forward-sexp-selection
-							   :filter gopcaml-state-sexp-filter))
-  (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
-							   :filter gopcaml-state-sexp-filter))
-  (define-key gopcaml-mode-map
-    (kbd "C-c C-o")
-    '(menu-item "" gopcaml-goto-nearest-letdef
-		:filter gopcaml-state-filter))
-  (define-key merlin-mode-map
-    (kbd "C-c C-o")
-    '(menu-item "" gopcaml-goto-nearest-letdef
-		:filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-c C-p") '(menu-item "" gopcaml-goto-nearest-pattern
-							   :filter gopcaml-state-filter))
-  (define-key merlin-mode-map
-    (kbd "C-c C-p")
-    '(menu-item "" gopcaml-goto-nearest-pattern
-		:filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-c C-e") #'gopcaml-extract-expression )
+  
+  ;; backup bindings (if smartparens not installed)
+  (unless (lookup-key gopcaml-mode-map (kbd "C-M-f"))
+    (define-key gopcaml-mode-map (kbd "C-M-f") '(menu-item "" gopcaml-forward-sexp
+							   :filter gopcaml-state-filter)))
 
-  (define-key gopcaml-mode-map (kbd "C-M-@")
-    '(menu-item "" gopcaml-zipper-mark-mode
-		:filter gopcaml-state-filter))
-  (define-key gopcaml-mode-map (kbd "C-c C-v")
-    '(menu-item "" gopcaml-list-free-variables))
-  (define-key gopcaml-mode-map (kbd "C-M-SPC")
-    '(menu-item "" gopcaml-zipper-mark-mode
-		:filter gopcaml-state-filter))
+  (unless (lookup-key gopcaml-mode-map (kbd "C-M-b"))
+    (define-key gopcaml-mode-map (kbd "C-M-b") '(menu-item "" gopcaml-backward-sexp
+							   :filter gopcaml-state-filter)))
+  (unless (lookup-key gopcaml-mode-map (kbd "C-M-S-f"))
+    (define-key gopcaml-mode-map (kbd "C-M-S-f") '(menu-item "" gopcaml-forward-sexp-selection
+							     :filter gopcaml-state-filter)))
+
+  (unless (lookup-key gopcaml-mode-map (kbd "C-M-S-b"))
+    (define-key gopcaml-mode-map (kbd "C-M-S-b") '(menu-item "" gopcaml-backward-sexp-selection
+							     :filter gopcaml-state-filter)))
+  
   (setq-local forward-sexp-function nil)
   (add-hook 'after-change-functions #'gopcaml-update-dirty-region)
   (add-hook 'before-change-functions #'gopcaml-before-change-remove-type-hole)
@@ -1144,4 +1087,10 @@ END is the end of the edited text region."
 
 (add-hook 'gopcaml-mode-hook #'gopcaml-setup-hook)
 
+
 (provide 'gopcaml-mode)
+
+;; optional dependencies
+(eval-after-load 'smartparens '(require 'gopcaml-smartparens))
+(eval-after-load 'multiple-cursors '(require 'gopcaml-multiple-cursors))
+;;; gopcaml-mode.el ends here
