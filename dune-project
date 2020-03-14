@@ -10,9 +10,8 @@
  (ocaml-compiler-libs (>= 0.12.1))
  )
  )
-
+(version 0.0.1)
 (name gopcaml-mode)
-(version 20d0323-dirty)
 (generate_opam_files true)
 (license GPL-3.0-only)
 (source (uri git+https://gitlab.com/gopiandcode/gopcaml-mode.git))
