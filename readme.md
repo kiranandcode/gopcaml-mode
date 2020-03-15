@@ -43,10 +43,15 @@ The ultimate ocaml editing mode.
 ## Installation
 Gopcaml mode is implemented using a mixture of ocaml and elisp.
 
+Make sure your emacs is compiled with dynamic modules support (you may need to build emacs from source with the `--with-modules` option).
+
+*Note:* If you get an error about ELF headers this means that your emacs doesn't support dynamic modules - you'll need to build emacs from source (takes ~5 minutes usually).
+
 - Install the project via opam:
 ```sh
 opam install gopcaml-mode
 ```
+- install merlin, ocp-indent and tuareg mode
 - load the project in your init.el
 ```elisp
  (let ((opam-share (ignore-errors (car (process-lines "opam" "config" "var" "share")))))
@@ -54,6 +59,8 @@ opam install gopcaml-mode
 	     ;; Register Gopcaml mode
 	     (add-to-list 'load-path (expand-file-name "emacs/site-lisp" opam-share))
          (autoload 'gopcaml-mode "gopcaml-mode" nil t nil)
+         (autoload 'tuareg-mode "tuareg" nil t nil)
+         (autoload 'merlin-mode "merlin" "Merlin mode" t)
 	     ;; Automatically start it in OCaml buffers
 	     (setq auto-mode-alist
 		   (append '(("\\.ml[ily]?$" . gopcaml-mode)
