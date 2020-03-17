@@ -70,3 +70,101 @@ opam install gopcaml-mode
 ```
 
 Enjoy your ultimate editing experience.
+
+## Development
+If you want to tinker with this project/extend it/build your own version, see below:
+### Project Structure
+The core project laid out as follows: 
+```
+├── gopcaml.ml
+├── gopcaml_state.ml
+├── ast_zipper.ml
+├── ast_analysis.ml
+├── ast_transformer.ml
+├── gopcaml-mode.el
+├── gopcaml-multiple-cursors.el
+└── gopcaml-smartparens.el
+
+```
+The purpose of each file is defined as follows (in the order in which you'd probably want to look at them):
+- *gopcaml.ml* 
+  - defines the main entrypoint for the module
+  - this is where all the functions bindings to emacs are setup
+- *gopcaml_state.ml*
+  - defines functions to parse and track a copy of the AST for use in other components
+- *ast_zipper.ml* 
+  - defines a huet-style scarred zipper for the OCaml AST.
+  - the zipper operates in a lazy fashion - i.e the AST is only
+    expanded into the zipper type when the user expicitly requests it
+- *ast_analysis.ml*
+  - contains functions that perform analysis over the AST (i.e things like finding the free variables in an expression, etc.)
+  - *ast_transformer.ml* should be moved into here at some point
+
+- *gopcaml-mode.el* 
+  - main elisp plugin file
+  - takes the functions exported by gopcaml.ml and provides wrappers to make them more robust
+- *gopcaml-*.el* 
+  - optional features that are loaded in when the required packages are also loaded
+  - allows for better compatibility with other emacs packages (i.e for
+    example, disabling ast-movement when at the start of a parens so
+    smartparens can work )
+
+### Architecture
+- There are two main interesting components to gopcaml-mode
+- *Tracking OCaml Ast* 
+  - in order to work, gopcaml mode needs to have a copy of the ocaml
+    ast that (typically*) needs to be up to date with the buffer
+    contents
+  - to achieve this while maintaining a fluid user experience this is achieved
+	through to measures:
+	  - invalidating on changes:
+	      - when any change is made to the buffer, the state is invalidiated
+		    (see `gopcaml_state.ml/State/DirtyRegion/update`)
+		  - if the user runs a command that requires the ast and the ast is
+		    invalidated, then we try and rebuild the ast 
+			(see `gopcaml_state.ml/State/Validated/of_state.ml`).
+	  - periodic rebuilding:
+		  - when gopcaml-mode is started, an idle timer is setup to
+            periodically check if the AST is out of date and rebuild
+            it when the user doesn't perform any changes for a while
+		  - this just means that we can perform AST reconstruction
+            during idle time, and reduces the cost of moving after
+            changes
+    *sometimes we don't care if the ast is out of date/we're doing analysis
+	 during a time when we know the ast will not be constructable (i.e for 
+	 example if implementing a function to check whether we are writing text
+	 inside a letbinding (see `gopcaml_state.ml/inside_let_def`)) - in this
+	 case we can try and retrieve an old copy of the state
+	 (see `gopcaml_state.ml/State/Validated/of_state_immediate`)
+- *Zipper-mode*
+  - zipper-mode is the terminology given to the transient mode that is
+	entered when the user performs strucutural movement.
+  - when a structural command is run for the first time, we retrieve
+    the ast and create a zipper and store it in a
+    buffer-local-varaible (see `gopcaml_state.ml/build_zipper_enclosing_point`)
+  - all subsequent movement commands retrieve the zipper from this variable and
+    use it to move the emacs cursor and the overlay highlighting the selected item
+  - transformation operations also use the zipper to update the
+    buffer, but have to take extra care to ensure that they also
+    update the state of the zipper to reflect the changes in the ast
+    (as the zipper, unlike the ast isn't periodically updated)
+	(see `ast_zipper.ml/move_(left|right|up|down)`)
+  - when any command that isn't a structural editing one is pressed,
+    the transient mode ends, and the zipper variable is cleared.
+  - Note: the fact that the zipper is in a separate variable from the
+    ast deliberately means that the zipper may become desynchronized
+    from the ast - for example, if we perform an AST transformation
+    using the zipper, then the original ast will not be up to
+    date. This is mainly just to avoid unnecassary work - rather than
+    writing transformation functions twice for the ast and zipper, we
+    write them once for the zipper (taking sure to ensure that the
+    meta-information stored in the zipper is kept up to date), and
+    then let the automatic rebuilding functionality handle updating
+    the original ast.
+    
+### Setting up the development environment
+Being an emacs plugin, the development environment setup is tailored
+for emacs.
+
+- Clone the repo from gitlab https://gitlab.com/gopiandcode/gopcaml-mode
+- Open the project directory in emacs while loading the additional script

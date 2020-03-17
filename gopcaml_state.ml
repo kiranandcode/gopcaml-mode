@@ -34,7 +34,7 @@ module State = struct
 
   module Direction = struct
 
-    (** records whether the current file is an interface or implementation *)
+    (** records whether moving forward or backwards *)
     type s = Forward | Backward [@@deriving sexp]
 
 
@@ -157,8 +157,6 @@ module State = struct
         (fun iterator item -> iterator.signature_item iterator item)
         (fun x -> Intf x)
 
-
-
     (** determines the file-type of the current file based on its extension *)
     let retrieve_current_file_type ~implementation_extensions ~interface_extensions =
       Current_buffer.file_name ()
@@ -279,9 +277,6 @@ module State = struct
           | None -> ma in
       (start_region,end_region)
 
-
-
-
     let abstract_rebuild_region f start_region end_region pre_edit_region post_edit_region  =
       (* first, attempt to parse the exact modified region *)
       match parse_current_buffer
@@ -300,8 +295,6 @@ module State = struct
           with
           | Some v -> let reparsed_range = f v in reparsed_range
           | None -> pre_edit_region @ post_edit_region
-
-
 
     let rebuild_intf_parse_tree min max structure_list dirty_region =
       let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
