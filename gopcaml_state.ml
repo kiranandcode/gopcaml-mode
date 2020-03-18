@@ -850,7 +850,7 @@ let retrieve_enclosing_bounds ?current_buffer ~state_var point =
 
 let print_zipper =
   Option.map ~f:(fun zipper ->
-      (* Ecaml.message (Ast_zipper.describe_current_item zipper); *)
+      Ecaml.message (Ast_zipper.describe_current_item zipper);
       zipper)
 
 (** retrieve a zipper expression at the current position *)

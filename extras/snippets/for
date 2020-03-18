@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: for
+# key: for
+# --
+for ${1:cond} do ${0:(??)} done`(if (and (boundp 'gopcaml-state) gopcaml-state (fboundp 'gopcaml-is-inside-let-def)
+                               (car (gopcaml-is-inside-let-def (point)))) ";")`

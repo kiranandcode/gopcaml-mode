@@ -1,0 +1,9 @@
+# -*- mode: snippet -*-
+# name: let in
+# key: let
+# --
+let ${1:_} = ${2:(??)}`(if
+    (and (boundp 'gopcaml-state) gopcaml-state
+	 (fboundp 'gopcaml-is-inside-let-def)
+	 (car (gopcaml-is-inside-let-def (point))))
+    "in")`

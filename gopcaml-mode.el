@@ -26,11 +26,25 @@
 
 ;; load in core Gopcaml library
 
-(let ((opam-lib (ignore-errors (car (process-lines "opam" "config" "var" "lib")))))
-  (if (and opam-lib (file-directory-p opam-lib))
-      (require 'gopcaml (expand-file-name "./gopcaml-mode/gopcaml.so" opam-lib))
-    (error "Could not find opam - please make sure it is installed")
-    ))
+(cond
+ ((and (boundp 'gopcaml-dev-mode) gopcaml-dev-mode)
+  ;; if in dev mode,
+  (message "loading gopcaml-mode [dev]")
+  (require 'gopcaml
+	   ;; load dynamic module from the build directory
+	   (expand-file-name "./_build/default/gopcaml.so"
+			     (string-trim
+			      (shell-command-to-string (format "dirname %s"
+							       (or (and (boundp 'file) file)
+								   (buffer-file-name (current-buffer))
+								   )))))))
+ (t
+  (message "loading gopcaml-mode [normal]")
+  (let ((opam-lib (ignore-errors (car (process-lines "opam" "config" "var" "lib")))))
+    (if (and opam-lib (file-directory-p opam-lib))
+	(require 'gopcaml (expand-file-name "./gopcaml-mode/gopcaml.so" opam-lib))
+      (error "Could not find opam - please make sure it is installed")
+      ))))
 
 ;; load in emacs dependencies
 (require 'subr-x)
@@ -1065,7 +1079,11 @@ END is the end of the edited text region."
 	(run-with-local-idle-timer gopcaml-rebuild-delay t
 				   (lambda ()
 				     (when gopcaml-state (gopcaml-ensure-updated-state)))))
-  )
+  (if (and (boundp 'gopcaml-dev-mode) gopcaml-dev-mode
+	   (boundp 'gopcaml-dev-mode-filemap) gopcaml-dev-mode-filemap
+	   (boundp 'gopcaml-dev-mode-file) gopcaml-dev-mode-file)
+      (progn
+	(puthash gopcaml-dev-mode-file t gopcaml-dev-mode-filemap))))
 
 (defun gopcaml-quit ()
   "Quit gopcaml-mode and tear down its timers and bindings."

@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: sprintf
+# key: spr
+# --
+Printf.sprintf ${1:"%s"} $0

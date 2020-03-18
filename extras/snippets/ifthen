@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: ift
+# key: ift
+# --
+if ${1:(??)} then ${2:(??)}`(if (and (boundp 'gopcaml-state) gopcaml-state (fboundp 'gopcaml-is-inside-let-def)
+                               (car (gopcaml-is-inside-let-def (point)))) ";")`

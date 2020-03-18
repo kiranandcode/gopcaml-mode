@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: assert
+# key: assert
+# --
+assert ${1:(??)}`(if (and (boundp 'gopcaml-state)
+                           gopcaml-state (fboundp 'gopcaml-is-inside-let-def)
+                               (car (gopcaml-is-inside-let-def (point)))) ";")`$0

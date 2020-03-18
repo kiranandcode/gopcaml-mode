@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: while
+# key: while
+# --
+while ${1:(??)} do ${2:(??)} done`(if (and gopcaml-state (fboundp 'gopcaml-is-inside-let-def)
+                               (car (gopcaml-is-inside-let-def (point)))) ";")`

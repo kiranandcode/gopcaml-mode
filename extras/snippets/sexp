@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: sexp
+# key: sexp
+# --
+[@@deriving sexp]

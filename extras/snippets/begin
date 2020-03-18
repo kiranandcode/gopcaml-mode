@@ -1,0 +1,5 @@
+# -*- mode: tuareg -*-
+# name: begin
+# key: begin
+# --
+begin ${1:(??)} end

@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: guard
+# key: |m
+# --
+| ${1:_} -> $0

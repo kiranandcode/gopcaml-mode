@@ -71,6 +71,8 @@ opam install gopcaml-mode
 
 Enjoy your ultimate editing experience.
 
+## Extras
+- For some additional features that aren't included in the main release, see the extras folder
 ## Development
 If you want to tinker with this project/extend it/build your own version, see below:
 ### Project Structure
@@ -103,7 +105,7 @@ The purpose of each file is defined as follows (in the order in which you'd prob
 - *gopcaml-mode.el* 
   - main elisp plugin file
   - takes the functions exported by gopcaml.ml and provides wrappers to make them more robust
-- *gopcaml-*.el* 
+- *gopcaml-\*.el* 
   - optional features that are loaded in when the required packages are also loaded
   - allows for better compatibility with other emacs packages (i.e for
     example, disabling ast-movement when at the start of a parens so
@@ -161,10 +163,41 @@ The purpose of each file is defined as follows (in the order in which you'd prob
     meta-information stored in the zipper is kept up to date), and
     then let the automatic rebuilding functionality handle updating
     the original ast.
-    
+
 ### Setting up the development environment
 Being an emacs plugin, the development environment setup is tailored
 for emacs.
 
 - Clone the repo from gitlab https://gitlab.com/gopiandcode/gopcaml-mode
-- Open the project directory in emacs while loading the additional script
+- Build the project with `dune build`
+- in your init.el where gopmacs is loaded, add the following:
+```elisp
+(add-to-list
+	'command-switch-alist
+	(cons "gopdev"  (lambda (__) nil)))
+	
+(if (member "-gopdev" command-line-args) (setq gopcaml-dev-mode t))
+
+(if (or (not (boundp 'gopcaml-dev-mode)) (not gopcaml-dev-mode))
+   ... ;; run normal gopcaml initialization code (i.e from the install instructions)
+)
+```
+- Now launch emacs passing the flag `-gopdev` and open any file inside
+  the project directory.
+- When prompted press `y` or `!` to setup the development variables for the file.
+- Now this instance of emacs will use your local branch to load
+  gopcaml-mode (It's quite nice developing in this way, as any changes
+  you make will be reflected in your editor, and can quickly be tried
+  out**.
+  
+Note: My typical development setup is to have a command prompt open in
+the background and execute `dune build && emacs -gopdev ./<some-file>.ml`.
+I make some changes, use merlin to ensure there
+are no issues, exit and press up on my terminal to reload the prior
+command and press enter.
+
+Note\*: The reason for the complicated setup is that gopcaml-mode uses
+dynamic modules to call out to ocaml mode from emacs, and dynamic
+modules can only be loaded into an emacs instance once - thus each
+time you make a change, you'll need to restart emacs.
+

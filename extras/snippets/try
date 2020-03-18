@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: try
+# key: try
+# --
+try ${1:(??)} with ${2:_} -> ${3:(??)}
