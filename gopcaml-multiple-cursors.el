@@ -82,9 +82,16 @@
 	)
       ))
   )
+(defun gopcaml-zipper-extract-expression ()
+  "Extracts the current item and exits zipper mode."
+  (interactive)
+  (gopcaml-zipper-use-current-and-quit #'gopcaml-extract-expression))
+
 
 (define-key gopcaml-mode-map (kbd "C-c C-e") #'gopcaml-extract-expression)
 (define-key merlin-mode-map (kbd "C-c C-e") #'gopcaml-extract-expression)
+(define-key gopcaml-zipper-mode-map (kbd "C-c C-e") #'gopcaml-zipper-extract-expression)
+
 
 (provide 'gopcaml-multiple-cursors)
 ;;; gopcaml-multiple-cursors.el ends here

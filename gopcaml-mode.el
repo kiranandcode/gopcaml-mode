@@ -840,15 +840,24 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   (when (and gopcaml-state(gopcaml-state-available-filter))
     cmd))
 
+(defun gopcaml-zipper-use-current-and-quit (fn)
+  "Execute FN on region enclosing the selected zipper item and exits zipper mode."
+  (interactive)
+  (when (and gopcaml-zipper-overlay gopcaml-zipper-mode-quit)
+    (let ((area (car (gopcaml-retrieve-zipper-bounds))))
+      (when area
+	(funcall fn (car area) (cadr area))
+	;; sometimes the function being called will call operations
+	;; that end up quitting the transient mode automatically, so
+	;; we don't need to do anything
+	(if gopcaml-zipper-mode-quit
+	    (funcall gopcaml-zipper-mode-quit))))))
 
 (defun gopcaml-zipper-kill ()
   "Deletes the current item and exits zipper mode."
-  (when gopcaml-zipper-mode-quit
+  (interactive)
+  (gopcaml-zipper-use-current-and-quit #'kill-region))
 
-
-
-    (funcall zipper-mode-quit)
-    ))
 
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
@@ -870,11 +879,10 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
       '(menu-item "" gopcaml-forward-list))
     (define-key gopcaml-map (kbd "C-M-p")
       '(menu-item "" gopcaml-backward-list))
-    ;; (define-key gopcaml-map (kbd "C-M-w")
-    ;;   #'gopcaml-zipper-kill)
-    ;; (define-key gopcaml-map (kbd "C-M-w")
-    ;;   '(menu-item "" (lambda () (interactive) (move-gopcaml-zipper #'gopcaml-zipper-kill-region))
-    ;; 		  ))
+    (define-key gopcaml-map (kbd "C-M-w")
+      #'gopcaml-zipper-kill)
+    (define-key gopcaml-map (kbd "C-w")
+      #'gopcaml-zipper-kill)
     (define-key gopcaml-map (kbd "M-w")
       '(menu-item "" (lambda () (interactive) (gopcaml-copy-region))
 		  ))

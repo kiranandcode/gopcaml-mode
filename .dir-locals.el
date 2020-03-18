@@ -6,17 +6,20 @@
   (eval if (or (not (boundp 'gopcaml-dev-mode)) (not gopcaml-dev-mode))
 	(error "Please ensure that your init file is setup as in the README."))
   ;; add project to load directory
-  (eval add-to-list 'load-path
-	(expand-file-name
-	 (file-name-directory
-	  (buffer-file-name
-	   (current-buffer)))))
-  ;; set to autoload
-  (eval autoload 'gopcaml-mode
-	(expand-file-name
-	 "gopcaml-mode"
-	 (file-name-directory (buffer-file-name (current-buffer))))
-	nil t nil)
+  (eval
+   when (and (current-buffer) (buffer-file-name (current-buffer)))
+   (add-to-list 'load-path
+		(expand-file-name
+		 (file-name-directory
+		  (buffer-file-name
+		   (current-buffer)))))
+   ;; setup gopcaml-mode to autoload
+   (autoload 'gopcaml-mode
+     (expand-file-name
+      "gopcaml-mode"
+      (file-name-directory (buffer-file-name (current-buffer))))
+     nil t nil)
+   )
   ;; global variable to track whether dev mode has been loaded for specific files
   (eval setq gopcaml-dev-mode-filemap
 	(if (not (boundp 'gopcaml-dev-mode-filemap))
@@ -25,13 +28,12 @@
   (eval if
   	(not (gethash (buffer-file-name (current-buffer))
 		      gopcaml-dev-mode-filemap nil))
-  	(progn
 	  ;; and it is a ml file
-	  (when (string-match
-		 "\\(ml\\|mli\\)"
-		 (file-name-extension
-		  (buffer-file-name
-		   (current-buffer))))
+	  (when (and (current-buffer)
+		     (buffer-file-name (current-buffer))
+		     (file-name-extension (buffer-file-name (current-buffer)))
+		     (string-match "\\(ml\\|mli\\)"
+		      (file-name-extension (buffer-file-name (current-buffer)))))
 	    ;; then start gopcaml-mode
 	    ;; (setting gopcaml-dev-mode-file to the name of this file)
 	    (setq
