@@ -1483,6 +1483,8 @@ let is_top_level_parent (z:zipper)  =
 
 (** determines whether the current is a pattern *)
 let is_pattern  = function
+  | EmptySequence (_, Pattern)
+  | Sequence (Some (_, Pattern), _, _, _)
   | Pattern _ -> true
   | _ -> false
 
@@ -2063,6 +2065,23 @@ let find_nearest_letdef_end point loc  =
   goto_nearest_letdef point loc
   |> Option.map ~f:(fun v -> t_to_bounds v |> Text_region.column_end )
 
+(** finds a wildcard if any exists within a term  *)
+let rec find_wildcard (t: t) : t option  =
+  (match t_descend t with
+   | Wildcard _ as t -> Some t
+   | Sequence (Some (_, Pattern), before, current, rest) ->
+     List.find_map ~f:find_wildcard ((List.rev before) @ current :: rest)
+   | _ -> None)
+
+(** finds a pattern variable if any exists within a term *)
+let rec find_pattern_variable (t: t) : t option  =
+  (match t_descend t with
+   | Pattern ({ppat_desc=Parsetree.Ppat_var _; _}) -> Some t
+   | Wildcard _ as t -> Some t
+   | Sequence (Some (_, Pattern), before, current, rest) ->
+     List.find_map ~f:find_pattern_variable ((List.rev before) @ current :: rest)
+   | _ -> None)
+
 
 (** finds the nearest enclosing wildcard  *)
 let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =
@@ -2070,28 +2089,36 @@ let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =
     begin
       let bounds = t_to_bounds current |> Text_region.column_start in
       (* if the point is at the start of a pattern, then continue suearch up *)
-      if not Int.(bounds = point) then
+      if Int.(bounds = point) then
+        go_left loc |> Option.bind ~f:(find_nearest_pattern point)
+      else
         let result = begin
+          (* retrieve all elements before element at current level *)
           let items = match parent with
-            | Node {below=_::_ as l; _} -> current :: l
-            | _ -> [current]
-          in
+            | Node {below=_::_ as l; _} -> current :: l | _ -> [current] in
           let is_value_binding = match parent with
             | Node {bounds=Some (_,ValueBinding); _}  -> true
             | _ -> false in 
           let items = List.take_while ~f:is_pattern items in
-          let items = List.rev items in
-          let items = if is_value_binding then List.drop items 1 else items in 
-          (* todo: make it more efficient *)
-          let items = List.rev items in
-          let items = List.map ~f:(fun v -> t_to_bounds v |> Text_region.column_start) items in 
-          List.last items
+          (* let items = List.rev items in *)
+          (* if in valuebinding, then first pattern is name of operation *)
+          let items = if is_value_binding then List.drop_last items |> Option.value ~default:[] else items in 
+          (* let items = List.rev items in *)
+          (* now, have list of patterns
+              - try find wildcard fist
+              - no wildcard, find pattern first,
+              - no pattern return last
+          *)
+          let result =
+            let (let+) x f = match x with Some v -> Some v | None -> f () in
+            let+ () = List.find_map ~f:find_wildcard items in
+            let+ () = List.find_map ~f:find_pattern_variable items in
+            List.last items in
+          Option.map ~f:(fun v -> t_to_bounds v |> Text_region.column_start) result
         end in
         match result with
         | Some _ -> result
         | None -> go_left loc |> Option.bind ~f:(find_nearest_pattern point)
-      else
-        go_left loc |> Option.bind ~f:(find_nearest_pattern point)
     end
   else go_left loc |> Option.bind ~f:(find_nearest_pattern point)
 
