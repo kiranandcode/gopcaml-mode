@@ -23,7 +23,7 @@
 ;; 
 
 ;;; Code:
-
+;;;; Requirements and environment setup
 ;; load in core Gopcaml library
 
 (cond
@@ -52,8 +52,8 @@
 (require 'ocp-indent)
 (require 'merlin)
 
-;;; Code:
-
+;;;; Customization
+;;;;; Faces
 (defgroup gopcaml-faces nil
   "Faces for gopcaml mode."
   :group 'gopcaml-mode
@@ -69,13 +69,17 @@
   "Face for highlighting zipper."
   :group 'gopcaml-faces)
 
-(defvar-local gopcaml-temporary-highlight-overlays nil
-  "Maintains an the overlay used for single-element highlights.")
+;;;;; Options
 
 (defcustom gopcaml-rebuild-delay 1
   "Number of idling seconds before rebuilding gopcaml-state."
   :type 'integer
   :group 'gopcaml)
+
+;;;; Local variables
+
+(defvar-local gopcaml-temporary-highlight-overlays nil
+  "Maintains an the overlay used for single-element highlights.")
 
 (defvar-local gopcaml-zipper-overlay nil
   "Overlay used to highlight the zipper region.")
@@ -88,6 +92,8 @@
 
 (defvar-local gopcaml-zipper-mode-quit nil
   "Function that can be called to quit the zipper mode.")
+
+;;;; Helper functions
 
 (defun gopcaml-remove-stored-overlays (&optional group)
   "Remove stored overlays - optionally only those of gopcaml-kind GROUP."
@@ -106,6 +112,16 @@
   (overlay-put overlay 'gopcaml-kind group)
   (push overlay gopcaml-temporary-highlight-overlays))
 
+(defun gopcaml-is-excluded-current-file ()
+  "Determines whether the current file has been designated as an
+ignored file."
+  (let ((excluded-extensions
+         (or (and (boundp 'gopcaml-ignored-extensions) gopcaml-ignored-extensions)
+             '("mll" "mly")))
+        (file-extension (file-name-extension (buffer-file-name))))
+    (member file-extension excluded-extensions)))
+
+;;;;; Highlighting functions 
 (defun gopcaml-temporarily-highlight-region (bounds &optional group face)
   "Temporarily highlight region enclosed by BOUNDS using FACE.
 removes all existing overlays of type GROUP if present."
@@ -155,6 +171,8 @@ removes all existing overlays of type GROUP if present."
       (setq start (car area))
       (setq end (cdr area))
       (gopcaml-temporarily-highlight-region (cons start end)))))
+
+;;;;; Zipper Movement
 
 (defun move-gopcaml-zipper (zipper-fn &optional direction initial)
   "Move the zipper using ZIPPER-FN in direction DIRECTION."
@@ -374,6 +392,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 	  )
 	))))
 
+;;;;; User facing operations 
 (defun gopcaml-get-current-item-bounds ()
   "Return the bounds of the current item."
   (gopcaml-zipper-mode-and-move
@@ -858,7 +877,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
   (interactive)
   (gopcaml-zipper-use-current-and-quit #'kill-region))
 
-
+;;;; Mode maps 
 (defvar gopcaml-zipper-mode-map
   (let ((gopcaml-map (make-sparse-keymap)))
     (define-key gopcaml-map (kbd "C-M-f")
@@ -1021,7 +1040,7 @@ END is the end of the edited text region."
   (gopcaml-temporarily-highlight-multiple-region (match-seq (read-string "Search string:") beg end))
   )
 
-;;; setup keybindings
+;;;; Setup keybindings
 
 (define-key gopcaml-mode-map (kbd "TAB") #'gopcaml-move-to-hole)
 (define-key gopcaml-mode-map (kbd "<backtab>") #'gopcaml-move-backward-to-hole)
@@ -1058,6 +1077,8 @@ END is the end of the edited text region."
 (define-key gopcaml-mode-map (kbd "C-M-SPC") '(menu-item "" gopcaml-zipper-mark-mode
 							 :filter gopcaml-state-filter))
 
+;;; Mode initialization functions
+;; As the mode itself is defined within the dynamic module, the code below sets up the buffer using a hook
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
@@ -1109,7 +1130,8 @@ END is the end of the edited text region."
 
 (defun gopcaml-setup-hook ()
   "Initialize gopcaml-mode."
-  (gopcaml-setup-bindings))
+  (unless (gopcaml-is-excluded-current-file)
+    (gopcaml-setup-bindings)))
 
 (add-hook 'gopcaml-mode-hook #'gopcaml-setup-hook)
 

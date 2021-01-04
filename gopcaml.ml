@@ -40,6 +40,21 @@ module Customizable = struct
     |}
       ~parents:[]
 
+  let ignored_extensions_var = Customization.defcustom
+      ~show_form:true
+      ("gopcaml-ignored-extensions" |> Symbol.intern)
+      [%here]
+      ~group:gopcaml_group
+      ~docstring:{|
+      List of extensions to be ignored and disable gopcaml-mode for.
+
+By default it is disabled on ocamllex and menhir files as they do not conform to the standard OCaml syntax.
+    |}
+      ~type_: (Value.Type.list Value.Type.string)
+      ~customization_type:(Customization.Type.Repeat Customization.Type.String)
+      ~standard_value:["mll"; "mly"]
+      ()
+
   let interface_extensions_var = Customization.defcustom
       ~show_form:true
       ("gopcaml-interface-extensions" |> Symbol.intern)
@@ -311,7 +326,7 @@ let define_functions () =
        required "post_line" Value.Type.int in
      Gopcaml_state.ensure_zipper_space ~zipper_var:Variables.zipper_var
        (pre_col,pre_line) (post_col, post_line) ()
-     |> Option.map ~f:(fun (a,b) -> [a; b])
+     |> Option.map ~f:(fun (a,b) -> [a;b])
     );
   defun
     ("gopcaml-zipper-move-elem-down" |> Symbol.intern)
@@ -322,7 +337,7 @@ let define_functions () =
      let%map_open op =
        return @@ Gopcaml_state.zipper_move_down ~zipper_var:Variables.zipper_var in
      op ()
-     |> Option.map ~f:(fun (a,(b,c)) -> [a; b; c])
+     |> Option.map ~f:(fun (a,(b,c)) -> [a;b;c])
     );
   defun
     ("gopcaml-begin-zipper-swap" |> Symbol.intern)
@@ -467,6 +482,15 @@ let define_functions () =
          ~state_var:Variables.state_var point matches (startp,endp) in
      vars ())
 
+let is_excluded_file () =
+  let (let+) x f = Option.bind x ~f in
+  let ignored_extensions = Customization.value Customizable.ignored_extensions_var in
+  let result = 
+    let+ file_name = Current_buffer.file_name () in
+    let+ ext = (String.split ~on:'.' file_name |> List.last) in
+    Some (List.mem ~equal:String.equal  ignored_extensions ext) in
+  Option.value ~default:false result
+
 let gopcaml_mode =
   let sym = ("gopcaml-mode" |> Symbol.intern) in
   Major_mode.define_derived_mode
@@ -478,14 +502,15 @@ let gopcaml_mode =
     ~parent:Major_mode.Tuareg.major_mode
     ~initialize:((Returns Value.Type.unit),
                  fun () ->
-                   message "Building initial state";
-                   let _ =  (Gopcaml_state.setup_gopcaml_state
-                               ~state_var:Variables.state_var
-                               ~interface_extension_var:Customizable.interface_extensions_var
-                               ~implementation_extension_var:Customizable.implementation_extensions_var
-                            ) in
-                   define_functions ()                
-                )
+                   if not (is_excluded_file ()) then begin
+                     message "Building initial state";
+                     let _ =  (Gopcaml_state.setup_gopcaml_state
+                                 ~state_var:Variables.state_var
+                                 ~interface_extension_var:Customizable.interface_extensions_var
+                                 ~implementation_extension_var:Customizable.implementation_extensions_var
+                              ) in
+                     define_functions ()
+                   end)
     ()
 
 (* Finally, provide the gopcaml symbol  *)
