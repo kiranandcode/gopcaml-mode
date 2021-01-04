@@ -14,6 +14,21 @@ let split_last ls =
   in
   loop ls None
 
+type type_seq =
+  | TyArrow                     (* T1 -> T2 *)
+  | TyTuple                     (* T1 * ... * Tn *)
+  | TyConstr                    (* tconst | T tconstr | (T1, ..., Tn) tconstr *)
+  | TyObj                       (* < l1:T1; ...; ln:Tn > *)
+  | TyClass                     (* #tconstr *)
+  | TyAlias                     (* T as 'a *)
+  | TyVariant                   (* [`A | `B] *)
+  | TyPoly                      (* 'a. T *)
+  | TyPackage                   (* (module S) *)
+  | TyExtension                 (* [%id] *)
+  | TyObjectField               (* inherit T1 | A : T1 -> T2 *)
+  | TyPackageField               (* val S : T1 -> T2 *)
+  | TyRowField               (* inherit T1 | A : T1 -> T2 *)
+[@@deriving show]
 type unwrapped_type =
   | ConstructorDefinition         (* _ A of b _ *)
   | LabelSpecification            (* _ x : t _ *)
@@ -98,6 +113,7 @@ type unwrapped_type =
   | While                         (* _ while E1 do E2 done _ *)
   | WithConstraint                (* _ with type t1 = t2 _ *)
   | Pattern
+  | Type of type_seq
 [@@deriving show]
 
 type t =
@@ -342,9 +358,13 @@ and unwrap_binding_op ({ pbop_op; pbop_pat; pbop_exp; _ }: Parsetree.binding_op)
   Sequence (bounds, [], loc, pat :: exp)
 (* correct *)
 and unwrap_type_declaration ({
-    ptype_name; ptype_params; ptype_cstrs; ptype_manifest;
+    ptype_name;                 (* name of record *)
+    ptype_params;               (* params of record *)
+    ptype_cstrs;                (* constraints on record *)
+    ptype_manifest;             (* manifest *)
+    ptype_kind;                 (* fields *)
     _
-  }  : Parsetree.type_declaration) =
+  } : Parsetree.type_declaration) =
   let loc = unwrap_loc ptype_name in
   let params = List.map ptype_params ~f:(fun (cty, _) -> CoreType cty) in 
   let strs = List.map ptype_cstrs ~f:(fun (c1, c2, _loc) ->
@@ -359,15 +379,21 @@ and unwrap_type_declaration ({
       Sequence (bounds, [], c1, [c2])
     ) in
   let o_man = Option.map ~f:(fun v -> CoreType v) ptype_manifest |> Option.to_list in
-  let items = params @ strs @ o_man in
+  let kind = unwrap_type_kind ptype_kind in
+  let items = params @ strs @ o_man @ kind in
   let bounds =
     let range =
       let sequence = Sequence (None, [], loc, items) in
       t_to_bounds sequence
     in
-    Some (range, TypeDeclaration)
-  in
+    Some (range, TypeDeclaration) in
   Sequence (bounds, [], loc, items)
+and unwrap_type_kind t : t list =
+ match t with
+| Parsetree.Ptype_abstract -> []
+| Parsetree.Ptype_variant cdecl -> List.map ~f:unwrap_constructor_declaration cdecl
+| Parsetree.Ptype_record ldecls -> List.map ~f:unwrap_label_declaration ldecls
+| Parsetree.Ptype_open -> []
 (* correct *)
 and unwrap_module_type 
     ({ pmty_desc;
@@ -515,6 +541,75 @@ and unwrap_case ({ pc_lhs; pc_guard; pc_rhs }: Parsetree.case) =
       Some (Sequence (bounds, [], h, t))
     | [] -> None
   end
+and unwrap_core_type ({ptyp_desc; _} as ty : Parsetree.core_type) : t = 
+  let range = t_to_bounds (CoreType ty) in
+  match ptyp_desc with
+  | Parsetree.Ptyp_any -> CoreType ty
+  | Parsetree.Ptyp_var _ -> CoreType ty
+  | Parsetree.Ptyp_arrow (_, t1, t2) ->
+    (* TODO: can't handle label as it doesn't have an explicit
+       location - can generate custom locations from string length? *)
+    begin match unwrap_core_type t2 with
+      | Sequence (Some (_, Type TyArrow), below, current, after) ->
+        Sequence (Some (range, Type TyArrow), [], CoreType t1, below @ current :: after)
+      | _ ->
+        Sequence (Some (range, Type TyArrow), [], CoreType t1, [CoreType t2])
+    end
+  | Parsetree.Ptyp_tuple [] -> CoreType ty
+  | Parsetree.Ptyp_tuple (h :: t) -> 
+    Sequence (Some (range, Type TyTuple), [], CoreType h, List.map ~f:(fun v -> CoreType v) t)
+  | Parsetree.Ptyp_constr (name, tys) ->
+    let name = unwrap_loc name in
+    begin match tys with
+      | [] -> Sequence (Some (range, Type TyConstr), [], name, [])
+      | h :: t -> Sequence (
+          Some (range, Type TyConstr), [],
+          CoreType h,
+          List.map ~f:(fun v  -> CoreType v) t @ [name])
+    end
+  | Parsetree.Ptyp_object ([], _) -> CoreType ty
+  | Parsetree.Ptyp_object (h :: t, _) ->
+    Sequence (Some (range, Type TyObj), [], unwrap_object_field h, List.map ~f:unwrap_object_field t)
+  | Parsetree.Ptyp_class (name, tys) ->
+    let name = unwrap_loc name in
+    Sequence (Some (range, Type TyClass), [], name, List.map ~f:(fun v -> CoreType v) tys)
+  | Parsetree.Ptyp_alias (ty, _) ->
+    Sequence (Some (range, Type TyAlias), [], CoreType ty, [])
+  | Parsetree.Ptyp_variant ([], _, _) -> CoreType ty
+  | Parsetree.Ptyp_variant (h :: t, _, _) ->
+    Sequence (Some (range, Type TyVariant), [], unwrap_record_field h, List.map ~f:unwrap_record_field t)    
+  | Parsetree.Ptyp_poly ([], cty) ->
+    Sequence (Some (range, Type TyPoly), [], CoreType cty, []) 
+  | Parsetree.Ptyp_poly (h :: t, cty) ->
+    Sequence (Some (range, Type TyPoly), [], unwrap_loc h, List.map ~f:unwrap_loc t @ [CoreType cty]) 
+  | Parsetree.Ptyp_package (name, pckg_fields) ->
+    let name = unwrap_loc name in
+    Sequence (Some (range, Type TyPackage), [], name, List.map ~f:unwrap_package_field pckg_fields) 
+  | Parsetree.Ptyp_extension ext ->
+    Sequence (Some (range, Type TyExtension), [], unwrap_extensions ext, [])
+and unwrap_package_field (name, cty) : t =
+  let name = unwrap_loc name in
+  let range = t_to_bounds @@ Sequence (None, [], name, [CoreType cty]) in
+  Sequence (Some (range, Type TyPackageField), [], name, [CoreType cty])
+and unwrap_record_field { prf_desc; _ } : t =
+  match prf_desc with
+  | Parsetree.Rtag (name, _, tys) ->
+    let name = unwrap_loc name in
+    let tys = List.map ~f:(fun v -> CoreType v) tys in
+    let range = t_to_bounds @@ Sequence (None, [], name, tys) in
+    Sequence (Some (range, Type TyRowField), [], name, tys)
+  | Parsetree.Rinherit cty ->
+    let range = t_to_bounds @@ Sequence (None, [], CoreType cty, []) in
+    Sequence (Some (range, Type TyRowField), [], CoreType cty, [])
+and unwrap_object_field ({ pof_desc; _ }) : t =
+  match pof_desc with
+  | Parsetree.Otag (name, ty) ->
+    let name = unwrap_loc name in
+    let range = t_to_bounds @@ Sequence (None, [], name, [CoreType ty]) in
+    Sequence (Some (range, Type TyObjectField), [], name, [CoreType ty])
+  | Parsetree.Oinherit ty ->
+    let range = t_to_bounds @@ Sequence (None, [], CoreType ty, []) in
+    Sequence (Some (range, Type TyObjectField), [], CoreType ty, [])    
 and unwrap_pattern ({ppat_desc; _} as pat : Parsetree.pattern) : t = 
   let range = t_to_bounds (Pattern pat) in
   match ppat_desc with
@@ -1124,9 +1219,18 @@ and unwrap_label_declaration ({ pld_name;  pld_type; _ }: Parsetree.label_declar
     t_to_bounds sequence
   in
   Sequence (Some (range, LabelSpecification), [], name, [ty])
+and unwrap_constructor_declaration { pcd_name; pcd_args; pcd_res; _ } : t =
+  let name = unwrap_loc pcd_name in
+  let res = Option.map ~f:(fun v -> CoreType v) pcd_res |> Option.to_list in
+  let args = unwrap_constructor_arguments pcd_args in
+  let items = args @ res in
+  let range = t_to_bounds @@ Sequence (None, [], name, items) in
+  Sequence (Some (range, ConstructorDefinition), [], name, items)
 and t_descend ?range t =
   let range = Option.value range ~default:(t_to_bounds t) in
   match t with
+  | Type_declaration tdecl -> unwrap_type_declaration tdecl
+  | CoreType ty -> unwrap_core_type ty
   | Expression expr -> unwrap_expr expr
   | Pattern pat -> unwrap_pattern pat
   | Value_binding { pvb_pat; pvb_expr; _ } ->

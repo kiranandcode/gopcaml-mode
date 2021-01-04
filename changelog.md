@@ -12,6 +12,8 @@
   - *Added support for excluding files*
     - Now does not complain when opening ocamllex or menhir files
     - see `gopcaml-ignored-extensions` variable for more information
+  - *Fixed ordering of parameters when using optional arguments*
+    - previously optional arguments would appear before their bindings
   - *Added better support for multi-byte strings*
     - previously, use of multi-byte strings would cause overlays to
       desynchronise with the code
