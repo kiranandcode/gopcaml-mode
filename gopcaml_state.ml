@@ -858,9 +858,9 @@ let build_zipper_enclosing_point ?direction ?current_buffer ~state_var ~zipper_v
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
-                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point ((Position.to_byte_position point) - 1)
-                                       line
-                                       direction) in
+                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point
+                                       (Position.to_byte_position Position.(sub point 1))
+                                       line direction) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
   |> print_zipper
@@ -876,7 +876,7 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
                    |> Option.map ~f:(Ast_zipper.move_zipper_broadly_to_point
-                                       ((Position.to_byte_position point) - 1)
+                                       (Position.to_byte_position Position.(sub point 1))
                                        line false) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
@@ -892,7 +892,7 @@ let find_nearest_defun ?current_buffer ~state_var point line =
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1) )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
-                        (Position.to_byte_position point - 1)
+                        (Position.to_byte_position Position.(sub point 1))
                         (line + 1)
                         false
                         zipper)
@@ -904,7 +904,7 @@ let find_nearest_defun_end ?current_buffer ~state_var point line =
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
-                        (Position.to_byte_position point - 1)
+                        (Position.to_byte_position Position.(sub point 1))
                         line
                         true
                         zipper)
@@ -917,9 +917,10 @@ let find_nearest_letdef ?current_buffer ~state_var point line =
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1)
                     )
-  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_byte_position point) line false )
+  |> Option.map ~f:( Ast_zipper.move_zipper_to_point
+                       (Position.to_byte_position Position.(sub point 1)) line false )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_letdef
-                        (Position.to_byte_position point - 1)
+                        (Position.to_byte_position Position.(sub point 1))
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
@@ -928,9 +929,10 @@ let find_nearest_pattern ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
-  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_byte_position point) line false )
+  |> Option.map ~f:( Ast_zipper.move_zipper_to_point
+                       (Position.to_byte_position Position.(sub point 1)) line false )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_pattern
-                        (Position.to_byte_position point - 1)
+                        (Position.to_byte_position Position.(sub point 1))
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
@@ -1127,7 +1129,8 @@ let find_extract_start_scope ?current_buffer ~state_var st_p ed_p text () =
       match it with
       | State.ImplIt (_,si) ->
         let scopes = snd (Ast_analysis.find_scopes_si si) in
-        let st_p,ed_p = Position.to_byte_position st_p - 1, Position.to_byte_position ed_p - 1 in 
+        let st_p,ed_p = Position.to_byte_position Position.(sub st_p 1),
+                        Position.to_byte_position Position.(sub ed_p 1) in 
         let selected_scope =
           Ast_analysis.find_lub_scope variables scopes (st_p,ed_p)
         in
@@ -1180,9 +1183,11 @@ let find_patterns_in_current ?current_buffer ~state_var point () =
 (** given a list of matching regions for the current scope, returns those that correspond
     to valid matches  *)
 let find_extraction_matches ?current_buffer ~state_var point matches (start_p,end_p) () =
-  let (start_p,end_p) = Position.to_byte_position start_p - 1, Position.to_byte_position end_p - 1 in 
+  let (start_p,end_p) = Position.to_byte_position Position.(sub start_p 1),
+                        Position.to_byte_position Position.(sub end_p 1) in 
   let matches = List.map
-      ~f:(fun (a,b) -> Position.to_byte_position a - 1, Position.to_byte_position b - 1)
+      ~f:(fun (a,b) -> Position.to_byte_position Position.(sub a 1),
+                       Position.to_byte_position Position.(sub b 1))
       matches in 
   find_excluded_scopes_in_current_internal ?current_buffer ~state_var point (start_p,end_p)
   |> Option.map ~f:(Ast_analysis.find_valid_matches matches)
