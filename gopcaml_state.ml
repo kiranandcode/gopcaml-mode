@@ -915,9 +915,8 @@ let find_nearest_defun_end ?current_buffer ~state_var point line =
 let find_nearest_letdef ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
-  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1)
-                    )
-  |> Option.map ~f:( Ast_zipper.move_zipper_to_point
+  |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
+  |> Option.map ~f:(Ast_zipper.move_zipper_to_point
                        (Position.to_byte_position Position.(sub point 1)) line false )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_letdef
                         (Position.to_byte_position Position.(sub point 1))

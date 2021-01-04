@@ -1488,6 +1488,14 @@ let is_pattern  = function
   | Pattern _ -> true
   | _ -> false
 
+let is_pattern_or_expression  = function
+  | Expression _
+  | EmptySequence (_, Pattern)
+  | Sequence (Some (_, Pattern), _, _, _)
+  | Pattern _ -> true
+  | _ -> false
+
+
 let describe_current_item  (MkLocation (current,_)) =
   (to_string current)
 
@@ -1979,7 +1987,7 @@ let go_left_enumerative (MkLocation (current,parent) as loc) =
     | Some loc -> Some (go_end loc)
 
 (** finds the nearest enclosing let def  *)
-let rec  goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
+let rec goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
   let is_vb parent = match parent with
     | Node {bounds=Some (_,v); _} ->
       begin
@@ -1998,20 +2006,18 @@ let rec  goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
     | LetOp -> true
     | _ -> false
   end in 
+  (* is the parent a letdef *)
   let is_letdef_parent parent = match parent with
     | Node {bounds=Some (_,v); _} -> is_let_type v
     | _ -> false in
+  (* is the current element a valuebinding *)
   let is_vb_child current =
-    match  current with
+    match current with
+    | Sequence (Some (_, ValueBinding), _, _, _) 
     | Value_binding _ -> true
-    | Sequence (Some (_, v), _, _, _) ->
-      begin
-        match v with
-        | ValueBinding -> true
-        | _ -> false
-      end
     | _ -> false
   in
+  (* is parent a value binding *)
   let is_vb_parent parent =
     match  parent with
     | Node {bounds=Some(_,v); _ } ->
@@ -2025,14 +2031,14 @@ let rec  goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
   if is_vb parent && is_pattern current then
     begin
       let bounds = t_to_bounds current |> Text_region.column_start in
-      (* if the point is at the start of a pattern, then continue suearch up *)
+      (* if the point is at the start of a pattern, then continue search up *)
       if not Int.(bounds = point) then
         let result = begin
           let items = match parent with
             | Node {below=_::_ as l; _} -> current :: l
             | _ -> [current]
           in
-          let items = List.take_while ~f:is_pattern items in
+          let items = List.take_while ~f:is_pattern_or_expression items in
           List.last items
         end in
         match result with
