@@ -1061,6 +1061,8 @@ END is the end of the edited text region."
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
   (message "setting up gopcaml-bindings")
+  ;; kill all local variables
+  (kill-all-local-variables)
   (setq-local end-of-defun-function #'gopcaml-end-defun)
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
   
