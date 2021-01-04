@@ -290,6 +290,10 @@ let  unwrap_loc ({ loc; _ }: 'a Asttypes.loc) =
   Text (Text_region.of_location loc)
 
 
+let sort_t_list =
+  let to_bounds vl = Text_region.column_start (t_to_bounds vl) in
+  List.sort ~compare:(fun a b -> Int.compare (to_bounds a) (to_bounds b))
+
 let rec unwrap_extensions ((loc, payload): Parsetree.extension) =
   let loc = unwrap_loc loc in
   match payload with
@@ -523,18 +527,18 @@ and unwrap_pattern ({ppat_desc; _} as pat : Parsetree.pattern) : t =
   | Parsetree.Ppat_alias (pat, name) ->
     let name = unwrap_loc name in
     Sequence (Some (range, Pattern), [], Pattern pat, [name])
-    (* P as 'a *)
+  (* P as 'a *)
   | Parsetree.Ppat_tuple [] -> Pattern pat
   | Parsetree.Ppat_tuple (h :: t) ->
     Sequence (Some (range, Pattern), [], Pattern h, List.map ~f:(fun v -> Pattern v) t)
-    (* (p1, ..., pn) (n >= 2) *)
+  (* (p1, ..., pn) (n >= 2) *)
   | Parsetree.Ppat_construct (cons, pat) ->
     let cons = unwrap_loc cons in
     begin match pat with
       | None -> cons
       | Some pat -> Sequence (Some (range, Pattern), [], cons, [Pattern pat])
     end
-    (* C, C P, C (P1, ..., Pn) *)
+  (* C, C P, C (P1, ..., Pn) *)
   | Parsetree.Ppat_variant (_, pat) ->
     (* TODO: add support for generating custom locations from string lengths *)
     begin match pat with
@@ -551,10 +555,10 @@ and unwrap_pattern ({ppat_desc; _} as pat : Parsetree.pattern) : t =
   (* [| P1; ...; Pn |]  *)
   | Parsetree.Ppat_or (p1, p2) ->
     Sequence (Some (range, Pattern), [], Pattern p1, [Pattern p2])
-    (* P1 | P2 *)
+  (* P1 | P2 *)
   | Parsetree.Ppat_constraint (pat, ty) ->
     Sequence (Some (range, Pattern), [], Pattern pat, [CoreType ty])
-    (* (P : T) *)
+  (* (P : T) *)
   | Parsetree.Ppat_type _ -> Pattern pat            (* #canst *)
   | Parsetree.Ppat_lazy pat ->
     Sequence (Some (range, Pattern), [], Pattern pat, [])
@@ -562,17 +566,17 @@ and unwrap_pattern ({ppat_desc; _} as pat : Parsetree.pattern) : t =
   | Parsetree.Ppat_unpack name ->
     let name = unwrap_loc name in
     Sequence (Some (range, Pattern), [], name, [])
-    (* (module P) *)
+  (* (module P) *)
   | Parsetree.Ppat_exception pat ->
     Sequence (Some (range, Pattern), [], Pattern pat, [])
-    (* exception P *)
+  (* exception P *)
   | Parsetree.Ppat_extension ext ->
     Sequence (Some (range, Pattern), [], unwrap_extensions ext, [])
-    (* [%id] *)
+  (* [%id] *)
   | Parsetree.Ppat_open (name, pat) ->
     let name = unwrap_loc name in
     Sequence (Some (range, Pattern), [name], Pattern pat, [])
-    (* M.(P) *)
+(* M.(P) *)
 and unwrap_record_binding ((name: Longident.t Location.loc), (pat: Parsetree.pattern)) =
   let name = unwrap_loc name in
   let pat = Pattern pat in
@@ -686,7 +690,7 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
         (* intermediate *)
         | _ -> [Expression expr]
       in
-      dflt @ pat @ expr in 
+      pat @ dflt @ expr in 
     let bounds = Some (range, Lambda) in
     begin
       match items with
@@ -1440,7 +1444,7 @@ let rec move_zipper_to_point point line forward loc =
     end
     else if Text_region.contains_point current_bounds point
     then begin
-       match t_descend current with
+      match t_descend current with
       | (Sequence _ as s) ->
         let (MkLocation (current', _) as zipper) =
           move_zipper_to_point point line forward (MkLocation (s,parent)) in
@@ -1530,87 +1534,87 @@ let rec move_zipper_broadly_to_point point line forward loc =
     | None -> Int.max_value
     | Some col -> col in
   let contains =
-      let MkLocation (current,_) = loc in 
-      let contains = Text_region.contains_ne_point (t_to_bounds current) point in 
-      contains
+    let MkLocation (current,_) = loc in 
+    let contains = Text_region.contains_ne_point (t_to_bounds current) point in 
+    contains
   in
 
   if contains then
-  match loc with
-  | MkLocation (Sequence (bounds, l,c,r), parent) ->
-    (* finds the closest strictly enclosing item *)
-    let  find_closest_enclosing ls =
-      let rec loop ls acc =
-        match ls with
-        | h :: t ->
-          if Text_region.contains_point (t_to_bounds h) point
-          then Some (acc, h, t)
-          else loop t (h :: acc)
-        | [] -> None in
-      loop ls [] in
-    begin
-      match find_closest_enclosing (List.rev l @ c :: r)  with
-      (* we found an enclosing expression - go into it *)
-      | Some (l,c,r) ->
-        move_zipper_broadly_to_point point line forward
-          (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
-      (* none of the subelements contain the point - find the closest one *)
-      | None ->
-        let sub_items = (List.rev l @ c :: r)
-                        |> List.map ~f:(fun elem -> distance (t_to_bounds elem), elem) in
-        let min_item = List.min_elt
-            ~compare:(fun (d,_) (d',_) ->
-                Int.compare d d'
-              ) sub_items in
-        match min_item with
-        | None -> (* this can never happen - list always has at least 1 element *) assert false
-        | Some (min_v,_) ->
-          begin match List.split_while sub_items ~f:(fun (d,_) ->
-              not @@ Int.(d =  min_v)
-            ) with
-          | ([],(_, c) :: r) ->
-            let c_bounds = t_to_bounds c in 
-            let r = List.map ~f:snd r in
-            if not forward && Text_region.before_point c_bounds point then
-              (MkLocation (Sequence (bounds, [],c,r), parent))
-            else   
+    match loc with
+    | MkLocation (Sequence (bounds, l,c,r), parent) ->
+      (* finds the closest strictly enclosing item *)
+      let  find_closest_enclosing ls =
+        let rec loop ls acc =
+          match ls with
+          | h :: t ->
+            if Text_region.contains_point (t_to_bounds h) point
+            then Some (acc, h, t)
+            else loop t (h :: acc)
+          | [] -> None in
+        loop ls [] in
+      begin
+        match find_closest_enclosing (List.rev l @ c :: r)  with
+        (* we found an enclosing expression - go into it *)
+        | Some (l,c,r) ->
+          move_zipper_broadly_to_point point line forward
+            (MkLocation (c, Node {below=l;parent; above=r; bounds;}))
+        (* none of the subelements contain the point - find the closest one *)
+        | None ->
+          let sub_items = (List.rev l @ c :: r)
+                          |> List.map ~f:(fun elem -> distance (t_to_bounds elem), elem) in
+          let min_item = List.min_elt
+              ~compare:(fun (d,_) (d',_) ->
+                  Int.compare d d'
+                ) sub_items in
+          match min_item with
+          | None -> (* this can never happen - list always has at least 1 element *) assert false
+          | Some (min_v,_) ->
+            begin match List.split_while sub_items ~f:(fun (d,_) ->
+                not @@ Int.(d =  min_v)
+              ) with
+            | ([],(_, c) :: r) ->
+              let c_bounds = t_to_bounds c in 
+              let r = List.map ~f:snd r in
+              if not forward && Text_region.before_point c_bounds point then
+                (MkLocation (Sequence (bounds, [],c,r), parent))
+              else   
+                move_zipper_broadly_to_point point line forward
+                  (MkLocation (c, Node {below=l; parent; above=r; bounds}))
+            | (l,(_, c) :: r) ->
+              let l = List.map ~f:snd l |> List.rev in
+              let r = List.map ~f:snd r in
               move_zipper_broadly_to_point point line forward
                 (MkLocation (c, Node {below=l; parent; above=r; bounds}))
-          | (l,(_, c) :: r) ->
-            let l = List.map ~f:snd l |> List.rev in
-            let r = List.map ~f:snd r in
-            move_zipper_broadly_to_point point line forward
-              (MkLocation (c, Node {below=l; parent; above=r; bounds}))
-          | _ -> assert false
-          end
-    end
-  | (MkLocation (current,parent) as v) ->
-    if Text_region.contains_ne_point (t_to_bounds current) point
-    then
-      begin
-        let descend = t_descend current in
-        if not (is_top_level descend)
-        then
-          begin
-            v
-          end
-        else
-          match descend with
-          | (Sequence _ as s) ->
-            let (MkLocation (_current', _) as zipper) =
-              move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
-            let descend_region =
-              (t_to_bounds _current') in
-            if (not forward && (zipper_is_first zipper) &&
-                  (Text_region.before_point descend_region point))
-            then begin
+            | _ -> assert false
+            end
+      end
+    | (MkLocation (current,parent) as v) ->
+      if Text_region.contains_ne_point (t_to_bounds current) point
+      then
+        begin
+          let descend = t_descend current in
+          if not (is_top_level descend)
+          then
+            begin
               v
             end
-            else zipper
-          | v -> (MkLocation (v, parent))
+          else
+            match descend with
+            | (Sequence _ as s) ->
+              let (MkLocation (_current', _) as zipper) =
+                move_zipper_broadly_to_point point line forward (MkLocation (s,parent)) in
+              let descend_region =
+                (t_to_bounds _current') in
+              if (not forward && (zipper_is_first zipper) &&
+                  (Text_region.before_point descend_region point))
+              then begin
+                v
+              end
+              else zipper
+            | v -> (MkLocation (v, parent))
 
-      end
-    else v
+        end
+      else v
   else loc
 
 let insert_element (MkLocation (current,parent)) (element: t)  =
@@ -1928,7 +1932,7 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
           (go_right zipper) |> Option.bind ~f:loop
         end
       else if forward then begin
-          Some pos_end
+        Some pos_end
       end
       else Some pos_start in
     let MkLocation (current,_) = zipper in
@@ -2111,9 +2115,9 @@ let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =
           let items = if is_value_binding then List.drop_last items |> Option.value ~default:[] else items in 
           (* let items = List.rev items in *)
           (* now, have list of patterns
-              - try find wildcard fist
-              - no wildcard, find pattern first,
-              - no pattern return last
+             - try find wildcard fist
+             - no wildcard, find pattern first,
+             - no pattern return last
           *)
           let result =
             let (let+) x f = match x with Some v -> Some v | None -> f () in
