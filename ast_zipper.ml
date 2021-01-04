@@ -550,9 +550,10 @@ let t_sort (ls: t list) =
   |> List.sort ~compare:(fun (l, _) (l', _) -> Int.compare l l')
   |> List.map ~f:(fun (_,l) -> l)
 
+(** convert an arbitrary location delimited element into a text region *)
 let  unwrap_loc ({ loc; _ }: 'a Asttypes.loc) =
   Text (TextRegion.of_location loc)
-(* correct *)
+
 
 let rec unwrap_extensions ((loc, payload): Parsetree.extension) =
   let loc = unwrap_loc loc in
@@ -1319,8 +1320,7 @@ and t_descend ?range t =
       | Sequence (Some (_,Lambda), [], h, t)  -> h :: t
       | Sequence (Some (_,LambdaType), [], h, t)  -> h :: t
       | Sequence (Some (_,Constraint), [], h, t)  -> h :: t
-      | _ -> [Expression pvb_expr]
-    in
+      | _ -> [Expression pvb_expr] in
     let bounds = Some (range, ValueBinding) in 
     Sequence (bounds, [], current, right)
   | Signature_item ({ psig_desc; _ } as si) ->
@@ -1420,20 +1420,25 @@ and t_descend ?range t =
           pval_name=loc;
           pval_type; _
         } ->
-        let loc = unwrap_loc loc in 
+        let name = unwrap_loc loc in 
         let ty = CoreType pval_type in
         let bounds = Some (range, ValueDeclaration) in
-        Sequence (bounds, [], loc, [ty])
+        Sequence (bounds, [], name, [ty])
+      (* val x : int
+         or 
+         external x : int -> int = "x" *)
       | Parsetree.Pstr_type (_, t :: ts) ->
         let right = List.map ~f:(fun vb -> Type_declaration vb) ts in
         let left = [] in
         let current = Type_declaration t in
         let bounds = Some (range, TypeDefinition) in
         Sequence (bounds,left,current,right)
+      (* type t1 = .. and t2 = .. *)
       | Parsetree.Pstr_module module_binding ->
         let mb = unwrap_module_binding module_binding in
         let bounds = Some (range, ModuleDefinition) in
         Sequence (bounds, [], mb, [])
+      (* module M : M = struct ... end *)
       | Parsetree.Pstr_recmodule vs ->
         let vs = List.map ~f:unwrap_module_binding vs in
         let bounds = Some (range, ModuleDefinition) in
@@ -1442,12 +1447,14 @@ and t_descend ?range t =
           | h :: t -> Sequence (bounds, [], h, t)
           | [] -> Structure_item si
         end
+      (* module rec M1 = struct ... end and M2 = struct ... end *)
       | Parsetree.Pstr_modtype { pmtd_name=loc; pmtd_type; _ } ->
         let loc = unwrap_loc loc in 
         let ty = Option.bind ~f:unwrap_module_type pmtd_type
                  |> Option.to_list in
         let bounds = Some (range, ModuleTypeDefinition) in
         Sequence (bounds, [], loc, ty)
+      (* module type M1  *)
       | Parsetree.Pstr_include { pincl_mod=expr;  _ }
       | Parsetree.Pstr_open { popen_expr=expr; _ } ->
         let expr = unwrap_module_expr expr |> Option.to_list in
@@ -1466,7 +1473,8 @@ and t_descend ?range t =
         let constructors = List.map ~f:(unwrap_extension_constructor) constructors in
         let bounds = Some (range, TypeExtension) in
         (* TODO: may need sorting *)
-        Sequence (bounds, [], name, params @ constructors)
+        Sequence (bounds, List.rev params, name,  constructors)
+      (*  type t1 += C of int *)
       | Parsetree.Pstr_class (_ :: _ as cdl) ->
         let items = List.map ~f:unwrap_class_declaration cdl in 
         let bounds = Some (range, ClassDefinition) in
