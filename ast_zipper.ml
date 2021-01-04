@@ -97,6 +97,7 @@ type unwrapped_type =
   | Variant                       (* _ `A _ *)
   | While                         (* _ while E1 do E2 done _ *)
   | WithConstraint                (* _ with type t1 = t2 _ *)
+  | Pattern
 [@@deriving show]
 
 type t =
@@ -109,8 +110,14 @@ type t =
   | Pattern of Parsetree.pattern[@opaque]
   | Expression of Parsetree.expression[@opaque]
   | Text of Text_region.t
+  | Wildcard of Text_region.t 
   | Sequence of ((Text_region.t * unwrapped_type) option * t list * t * t list)[@opaque]
   | EmptySequence of Text_region.t * unwrapped_type[@opaque]
+  (* Note: Generally all "sequences" that were produced from normal
+     OCaml code will not be empty - this additional variant is
+     included specifically to handle strange asts produced by zipper
+     based modifications *)
+
 
 let rec to_string =
   let truncate ?(n = 15) items =
@@ -126,6 +133,7 @@ let rec to_string =
   | Structure_item _si -> "Structure_item" (* " - {" ^ (Pprintast.string_of_structure [si]) ^ "}" *)
   | Value_binding _ -> "Value_binding"
   | Type_declaration _ -> "Type_declaration"
+  | Wildcard _ -> "Wildcard"
   | Attribute  _ -> "Attribute of"
   | CoreType  _ -> "CoreType of"
   | Pattern  _ -> "Pattern of"
@@ -143,7 +151,7 @@ let rec to_string =
   | EmptySequence (_, ty) -> "EmptySequence of " ^ (show_unwrapped_type ty)
 
 
-(* Huet's zipper for asts *)
+(** Huet's zipper for asts *)
 type zipper =
   | Top
   | Node of {
@@ -158,6 +166,7 @@ type location =
 
 let rec t_to_bounds = function
   | Text s -> s
+  | Wildcard s -> s
   | Signature_item si ->
     let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.signature_item iter si;
@@ -212,6 +221,7 @@ let t_shift_by_offset ~diff t =
     | Pattern pat -> Pattern (mapper.pat mapper pat)
     | Expression expr -> Expression (mapper.expr mapper expr)
     | Text s -> Text (Text_region.shift_region s diff)
+    | Wildcard s -> Wildcard (Text_region.shift_region s diff)
     | Sequence (bounds, left,elem,right) ->
       let left = List.map ~f:map left in
       let right = List.map ~f:map right in
@@ -255,6 +265,7 @@ let update_bounds ~diff state =
     | Pattern pat -> Pattern (mapper.pat mapper pat)
     | Expression expr -> Expression (mapper.expr mapper expr)
     | Text s -> Text (Text_region.shift_region s diff)
+    | Wildcard s -> Wildcard (Text_region.shift_region s diff)
     | Sequence (None, l,c,r) ->
       let update_ls = List.map ~f:update in
       Sequence (None, update_ls l, update c, update_ls r)
@@ -500,6 +511,73 @@ and unwrap_case ({ pc_lhs; pc_guard; pc_rhs }: Parsetree.case) =
       Some (Sequence (bounds, [], h, t))
     | [] -> None
   end
+and unwrap_pattern ({ppat_desc; _} as pat : Parsetree.pattern) : t = 
+  let range = t_to_bounds (Pattern pat) in
+  match ppat_desc with
+  | Parsetree.Ppat_constant _ -> Pattern pat   (* 1,  *)
+  | Parsetree.Ppat_var _ -> Pattern pat (* x *)
+  | Parsetree.Ppat_any -> Wildcard range (* _ *)
+  | Parsetree.Ppat_interval (_, _) ->
+    (* TODO: add support for generating custom locations from string lengths? *)
+    Pattern pat (* 'a' .. 'z' *)
+  | Parsetree.Ppat_alias (pat, name) ->
+    let name = unwrap_loc name in
+    Sequence (Some (range, Pattern), [], Pattern pat, [name])
+    (* P as 'a *)
+  | Parsetree.Ppat_tuple [] -> Pattern pat
+  | Parsetree.Ppat_tuple (h :: t) ->
+    Sequence (Some (range, Pattern), [], Pattern h, List.map ~f:(fun v -> Pattern v) t)
+    (* (p1, ..., pn) (n >= 2) *)
+  | Parsetree.Ppat_construct (cons, pat) ->
+    let cons = unwrap_loc cons in
+    begin match pat with
+      | None -> cons
+      | Some pat -> Sequence (Some (range, Pattern), [], cons, [Pattern pat])
+    end
+    (* C, C P, C (P1, ..., Pn) *)
+  | Parsetree.Ppat_variant (_, pat) ->
+    (* TODO: add support for generating custom locations from string lengths *)
+    begin match pat with
+      | None -> Sequence (Some (range, Pattern), [], Text range, [])
+      | Some pat -> Pattern pat
+    end   (* `A, `A P *)
+  | Parsetree.Ppat_record ([], _) -> Pattern pat
+  | Parsetree.Ppat_record (h :: t, _) ->
+    Sequence (Some (range, Pattern), [], unwrap_record_binding h, List.map ~f:unwrap_record_binding t)
+  (* { l1=P1; ...; ln=Pn } *)
+  | Parsetree.Ppat_array [] -> Pattern pat
+  | Parsetree.Ppat_array (h :: t) ->
+    Sequence (Some (range, Pattern), [], Pattern h, List.map ~f:(fun v -> Pattern v) t)
+  (* [| P1; ...; Pn |]  *)
+  | Parsetree.Ppat_or (p1, p2) ->
+    Sequence (Some (range, Pattern), [], Pattern p1, [Pattern p2])
+    (* P1 | P2 *)
+  | Parsetree.Ppat_constraint (pat, ty) ->
+    Sequence (Some (range, Pattern), [], Pattern pat, [CoreType ty])
+    (* (P : T) *)
+  | Parsetree.Ppat_type _ -> Pattern pat            (* #canst *)
+  | Parsetree.Ppat_lazy pat ->
+    Sequence (Some (range, Pattern), [], Pattern pat, [])
+  (* lazy P *)
+  | Parsetree.Ppat_unpack name ->
+    let name = unwrap_loc name in
+    Sequence (Some (range, Pattern), [], name, [])
+    (* (module P) *)
+  | Parsetree.Ppat_exception pat ->
+    Sequence (Some (range, Pattern), [], Pattern pat, [])
+    (* exception P *)
+  | Parsetree.Ppat_extension ext ->
+    Sequence (Some (range, Pattern), [], unwrap_extensions ext, [])
+    (* [%id] *)
+  | Parsetree.Ppat_open (name, pat) ->
+    let name = unwrap_loc name in
+    Sequence (Some (range, Pattern), [name], Pattern pat, [])
+    (* M.(P) *)
+and unwrap_record_binding ((name: Longident.t Location.loc), (pat: Parsetree.pattern)) =
+  let name = unwrap_loc name in
+  let pat = Pattern pat in
+  let range = t_to_bounds (Sequence (None, [], name, [pat])) in
+  Sequence (Some (range, Pattern), [], name, [pat])
 and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
   let range = 
     t_to_bounds (Expression expr) in
@@ -1046,6 +1124,7 @@ and t_descend ?range t =
   let range = Option.value range ~default:(t_to_bounds t) in
   match t with
   | Expression expr -> unwrap_expr expr
+  | Pattern pat -> unwrap_pattern pat
   | Value_binding { pvb_pat; pvb_expr; _ } ->
     let current = Pattern pvb_pat in
     let right = match unwrap_expr pvb_expr with
