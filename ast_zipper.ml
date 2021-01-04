@@ -784,9 +784,11 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
   (* | Parsetree.Pexp_constant _ -> (??) *)
   | Parsetree.Pexp_let (_, vbs, expr) ->
     let vbs = List.map ~f:(fun vb -> Value_binding vb) vbs in
+    (* consecutive let bindings and sequences are flattened out *)
     let expr,t = match unwrap_expr expr with
       | Sequence (Some (_,LetBinding), [], h, t)  -> h, t
       | Sequence (Some (_,LetModule), [], h, t)  -> h, t
+      | Sequence (Some (_,LetException), [], h, t)  -> h, t
       | Sequence (Some (_,BindingOp), [], h, t)  -> h, t
       | Sequence (Some (_,Seq), [], h, t)  -> h, t
       | Sequence (Some (_,LetOp), [], h, t)  -> h, t
@@ -804,6 +806,7 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
     let expr = match unwrap_expr expr with
       | Sequence (Some (_,LetBinding), [], h, t)  -> h :: t
       | Sequence (Some (_,LetModule), [], h, t)  -> h :: t
+      | Sequence (Some (_,LetException), [], h, t)  -> h :: t
       | Sequence (Some (_,BindingOp), [], h, t)  -> h :: t
       | Sequence (Some (_,Seq), [], h, t)  -> h :: t
       | Sequence (Some (_,LetOp), [], h, t)  -> h :: t
@@ -823,13 +826,18 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
     in 
     Sequence (bounds, [], modbind, expr)
   | Parsetree.Pexp_letexception (cons, expr) ->
-    let expn = [unwrap_extension_constructor cons] in
+    let expn = unwrap_extension_constructor cons in
+    let expr = match unwrap_expr expr with
+      | Sequence (Some (_,LetBinding), [], h, t)  -> h :: t
+      | Sequence (Some (_,LetModule), [], h, t)  -> h :: t
+      | Sequence (Some (_,LetException), [], h, t)  -> h :: t
+      | Sequence (Some (_,BindingOp), [], h, t)  -> h :: t
+      | Sequence (Some (_,Seq), [], h, t)  -> h :: t
+      | Sequence (Some (_,LetOp), [], h, t)  -> h :: t
+      | Sequence (Some (_,Extension), [], h, t)  -> h :: t
+      | _ -> [Expression expr] in
     let bounds = Some (range, LetException) in
-    begin
-      match expn with
-      | h :: t -> Sequence (bounds, [], h, t)
-      | [] -> Expression expr
-    end
+    Sequence (bounds, [], expn, expr)
   | Parsetree.Pexp_letop { let_; ands; body } ->
     let current = unwrap_binding_op let_ in
     let right1 = List.map ~f:unwrap_binding_op ands in
@@ -838,6 +846,7 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
       match sub_expression with
       | Sequence (Some (_,LetBinding), [], h, t)  -> h ::  t
       | Sequence (Some (_,LetModule), [], h, t)  -> h ::  t
+      | Sequence (Some (_,LetException), [], h, t)  -> h :: t
       | Sequence (Some (_,LetOp), [], h, t)  -> h :: t
       | Sequence (Some (_,BindingOp), [], h, t)  -> h :: t
       | Sequence (Some (_,Seq), [], h, t)  -> h :: t
