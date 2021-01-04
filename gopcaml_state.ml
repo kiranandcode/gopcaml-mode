@@ -1,6 +1,7 @@
 open Core
 open Ecaml
 
+let byte_of_position_safe pos = if Int.(pos = 0) then Position.of_int_exn pos else Position.of_byte_position pos
 
 module State = struct
 
@@ -124,9 +125,7 @@ module State = struct
             g iterator item;
             let (min_column, max_column) = get_result () in
             let start_marker,end_marker = Marker.create (), Marker.create () in
-            let get_position column = 
-              Position.of_int_exn column
-            in
+            let get_position column = byte_of_position_safe column in
             (* Point.goto_line_and_column Line_and_column.{line;column};
              * Point.get () in *)
 
@@ -250,14 +249,14 @@ module State = struct
           let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
           f iterator st;
           let (_,c) = get_bounds () in
-          Position.of_int_exn c
+          byte_of_position_safe c
         | None ->
           match invalid_region with
           | (_,st) :: _ ->
             let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
             f iterator st;
             let (_,c) = get_bounds () in
-            Position.of_int_exn c
+            byte_of_position_safe c
           | [] -> mi
       in
       let end_region =
@@ -266,28 +265,25 @@ module State = struct
           let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
           f iterator st;
           let (_,c) = get_bounds () in
-          Position.of_int_exn c
+          byte_of_position_safe c
         | [] ->
           match List.last invalid_region with
           | Some (_,st) ->
             let (iterator,get_bounds) =  Ast_transformer.bounds_iterator () in
             f iterator st;
             let (_,c) = get_bounds () in
-            Position.of_int_exn c
+            byte_of_position_safe c
           | None -> ma in
       (start_region,end_region)
 
     let abstract_rebuild_region f start_region end_region pre_edit_region post_edit_region  =
       (* first, attempt to parse the exact modified region *)
-      match parse_current_buffer
-              ~start:start_region ~end_:end_region Filetype.Interface
+      match parse_current_buffer ~start:start_region ~end_:end_region Filetype.Interface
       with
       | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range @ post_edit_region
       | None ->
         (* otherwise, try to reparse from the start to the end *)
-        match parse_current_buffer
-                ~start:start_region Filetype.Interface
-        with
+        match parse_current_buffer ~start:start_region Filetype.Interface with
         | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range
         | None ->
           (* otherwise, try to reparse from the start to the end *)
@@ -297,7 +293,7 @@ module State = struct
           | None -> pre_edit_region @ post_edit_region
 
     let rebuild_intf_parse_tree min max structure_list dirty_region =
-      let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
+      let mi,ma = byte_of_position_safe min, byte_of_position_safe max in
       let (pre_edit_region,invalid_region,post_edit_region) =
         calculate_region mi ma structure_list dirty_region in
       let (start_region,end_region) =
@@ -312,7 +308,7 @@ module State = struct
         start_region end_region pre_edit_region post_edit_region
 
     let rebuild_impl_parse_tree min max structure_list dirty_region =
-      let mi,ma = Position.of_int_exn min, Position.of_int_exn max in
+      let mi,ma = byte_of_position_safe min, byte_of_position_safe max in
       let (pre_edit_region,invalid_region,post_edit_region) =
         calculate_region mi ma structure_list dirty_region in
       let (start_region,end_region) =
@@ -512,7 +508,7 @@ let find_nearest_expression list point =
   let open State in
   match find_enclosing_expression list point with
   | None ->
-    (* no enclosing expression *)
+    (* no enclosing expression - hence, find nearest expression *)
     let (let+) v f = Option.bind ~f v in
     let distance ((region,_) as value) =
       let distance = 
@@ -550,7 +546,7 @@ let build_zipper (state: State.Validated.t) point =
   let find_nearest_prev_expression f list =
     let (let+) v f = Option.bind ~f v in
     let+ (left,current,right) = find_nearest_expression list point in
-    if (f current) = (Position.to_int point)
+    if (f current) = (Position.to_byte_position point)
     then begin
       match list_split_last left with
       | Some (last,left) -> Some (left, last, current::right)
@@ -775,9 +771,9 @@ let apply_iterator (item: State.parse_item) iter f  =
 let find_enclosing_bounds (state: State.Validated.t) ~point =
   find_enclosing_structure state point
   |> Option.bind ~f:begin fun expr ->
-    let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_int point) () in
+    let (iter,getter) = Ast_transformer.enclosing_bounds_iterator (Position.to_byte_position point) () in
     apply_iterator expr iter getter
-    |> Option.map ~f:(fun (a,b) -> (Position.of_int_exn (a + 1), Position.of_int_exn (b + 1)))
+    |> Option.map ~f:(fun (a,b) -> (byte_of_position_safe (a + 1), byte_of_position_safe (b + 1)))
   end
 
 (** returns a tuple of points enclosing the current structure *)
@@ -862,7 +858,7 @@ let build_zipper_enclosing_point ?direction ?current_buffer ~state_var ~zipper_v
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
-                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point ((Position.to_int point) - 1)
+                   |> Option.map ~f:(Ast_zipper.move_zipper_to_point ((Position.to_byte_position point) - 1)
                                        line
                                        direction) in
       Buffer_local.set zipper_var zipper current_buffer;
@@ -870,7 +866,7 @@ let build_zipper_enclosing_point ?direction ?current_buffer ~state_var ~zipper_v
   |> print_zipper
   |> Option.map ~f:Ast_zipper.to_bounds
   |> Option.map ~f:(fun (st,ed) ->
-      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
+      byte_of_position_safe (st + 1), byte_of_position_safe (ed + 1)
     )
 
 (** retrieve a zipper enclosing structure at the current position *)
@@ -880,14 +876,14 @@ let build_zipper_broadly_enclosing_point ?current_buffer ~state_var ~zipper_var 
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
                    |> Option.map ~f:(Ast_zipper.move_zipper_broadly_to_point
-                                       ((Position.to_int point) - 1)
+                                       ((Position.to_byte_position point) - 1)
                                        line false) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)
   |> print_zipper
   |> Option.map ~f:Ast_zipper.to_bounds
   |> Option.map ~f:(fun (st,ed) ->
-      Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
+      byte_of_position_safe (st + 1), byte_of_position_safe (ed + 1)
     )
 
 (** returns the point corresponding to the start of the nearest defun (or respective thing in ocaml) *)
@@ -896,7 +892,7 @@ let find_nearest_defun ?current_buffer ~state_var point line =
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1) )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
-                        (Position.to_int point - 1)
+                        (Position.to_byte_position point - 1)
                         (line + 1)
                         false
                         zipper)
@@ -908,7 +904,7 @@ let find_nearest_defun_end ?current_buffer ~state_var point line =
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_definition_item_bounds
-                        (Position.to_int point - 1)
+                        (Position.to_byte_position point - 1)
                         line
                         true
                         zipper)
@@ -921,9 +917,9 @@ let find_nearest_letdef ?current_buffer ~state_var point line =
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1)
                     )
-  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_int point) line false )
+  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_byte_position point) line false )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_letdef
-                        (Position.to_int point - 1)
+                        (Position.to_byte_position point - 1)
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
@@ -932,9 +928,9 @@ let find_nearest_pattern ?current_buffer ~state_var point line =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_gopcaml_state ~current_buffer ~state_var ()
   |> Option.bind ~f:(fun state -> build_zipper state (Position.sub point 1))
-  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_int point) line false )
+  |> Option.map ~f:( Ast_zipper.move_zipper_to_point (Position.to_byte_position point) line false )
   |> Option.bind ~f:(fun zipper -> Ast_zipper.find_nearest_pattern
-                        (Position.to_int point - 1)
+                        (Position.to_byte_position point - 1)
                         zipper)
   |> Option.map ~f:(fun x -> x + 1)
 
@@ -967,7 +963,7 @@ let delete_state ?current_buffer ~state_var () =
 let abstract_zipper_to_bounds zipper = zipper
                                        |> Option.map ~f:Ast_zipper.to_bounds
                                        |> Option.map ~f:(fun (st,ed) ->
-                                           Position.of_int_exn (st + 1), Position.of_int_exn (ed + 1)
+                                           byte_of_position_safe (st + 1), byte_of_position_safe (ed + 1)
                                          )
 
 (** retrieve bounds for current zipper *)
@@ -1058,8 +1054,8 @@ let abstract_zipper_update f ?current_buffer ~zipper_var () =
     )
   |> Option.map ~f:(fun ((l1,l2),(r1,r2),zipper) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
-      (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1)),
-      (Position.of_int_exn (r1 + 1),Position.of_int_exn (r2 + 1))
+      (byte_of_position_safe (l1 + 1),byte_of_position_safe (l2 + 1)),
+      (byte_of_position_safe (r1 + 1),byte_of_position_safe (r2 + 1))
     )
 
 (** attempts to swap the zipper *)
@@ -1082,7 +1078,7 @@ let zipper_delete_current ?current_buffer ~zipper_var () =
     )
   |> Option.map ~f:(fun (zipper,(l1,l2)) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
-      (Position.of_int_exn (l1 + 1),Position.of_int_exn (l2 + 1))
+      (byte_of_position_safe (l1 + 1),byte_of_position_safe (l2 + 1))
     )
 
 let zipper_move_up ?current_buffer ~zipper_var ()  =
@@ -1091,9 +1087,9 @@ let zipper_move_up ?current_buffer ~zipper_var ()  =
   |> Option.bind ~f:(Ast_zipper.move_up)
   |> Option.map ~f:(fun (zipper,pos,(ds,de)) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
-      (Position.of_int_exn (pos + 1),
-       (Position.of_int_exn (ds + 1),
-        Position.of_int_exn (de + 1)
+      (byte_of_position_safe (pos + 1),
+       (byte_of_position_safe (ds + 1),
+        byte_of_position_safe (de + 1)
        ))
     )
 
@@ -1103,9 +1099,9 @@ let zipper_move_down ?current_buffer ~zipper_var ()  =
   |> Option.bind ~f:(Ast_zipper.move_down)
   |> Option.map ~f:(fun (zipper,pos,(ds,de)) ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
-      (Position.of_int_exn (pos + 1),
-       (Position.of_int_exn (ds + 1),
-        Position.of_int_exn (de + 1)
+      (byte_of_position_safe (pos + 1),
+       (byte_of_position_safe (ds + 1),
+        byte_of_position_safe (de + 1)
        ))
     )
 
@@ -1131,7 +1127,7 @@ let find_extract_start_scope ?current_buffer ~state_var st_p ed_p text () =
       match it with
       | State.ImplIt (_,si) ->
         let scopes = snd (Ast_analysis.find_scopes_si si) in
-        let st_p,ed_p = Position.to_int st_p - 1, Position.to_int ed_p - 1 in 
+        let st_p,ed_p = Position.to_byte_position st_p - 1, Position.to_byte_position ed_p - 1 in 
         let selected_scope =
           Ast_analysis.find_lub_scope variables scopes (st_p,ed_p)
         in
@@ -1144,7 +1140,7 @@ let find_extract_start_scope ?current_buffer ~state_var st_p ed_p text () =
         selected_scope
       | State.IntfIt (_, _) -> None
     )
-  |> Option.map ~f:(fun (s,e) -> (Position.of_int_exn (s + 1), Position.of_int_exn (e + 1)))
+  |> Option.map ~f:(fun (s,e) -> (byte_of_position_safe (s + 1), byte_of_position_safe (e + 1)))
 
 (** find patterns in enclosing item  *)
 let find_patterns_in_current_internal ?current_buffer ~state_var point =
@@ -1175,7 +1171,7 @@ let find_excluded_scopes_in_current_internal ?current_buffer ~state_var point (s
 let find_patterns_in_current ?current_buffer ~state_var point () =
   find_patterns_in_current_internal ?current_buffer ~state_var point
   |> Option.map ~f:(List.map ~f:(fun (st_p,ed_p) ->
-            let st_p,ed_p = Position.of_int_exn (st_p + 1), Position.of_int_exn (ed_p + 1) in 
+            let st_p,ed_p = byte_of_position_safe (st_p + 1), byte_of_position_safe (ed_p + 1) in
             st_p,ed_p
           ))
   |> Option.value ~default:[]
@@ -1184,12 +1180,14 @@ let find_patterns_in_current ?current_buffer ~state_var point () =
 (** given a list of matching regions for the current scope, returns those that correspond
     to valid matches  *)
 let find_extraction_matches ?current_buffer ~state_var point matches (start_p,end_p) () =
-  let (start_p,end_p) = Position.to_int start_p - 1, Position.to_int end_p - 1 in 
-  let matches = List.map ~f:(fun (a,b) -> Position.to_int a - 1, Position.to_int b - 1) matches in 
+  let (start_p,end_p) = Position.to_byte_position start_p - 1, Position.to_byte_position end_p - 1 in 
+  let matches = List.map
+      ~f:(fun (a,b) -> Position.to_byte_position a - 1, Position.to_byte_position b - 1)
+      matches in 
   find_excluded_scopes_in_current_internal ?current_buffer ~state_var point (start_p,end_p)
   |> Option.map ~f:(Ast_analysis.find_valid_matches matches)
   |> Option.map ~f:(List.map ~f:(fun (st_p,ed_p) ->
-            let st_p,ed_p = Position.of_int_exn (st_p + 1), Position.of_int_exn (ed_p + 1) in 
+            let st_p,ed_p = byte_of_position_safe (st_p + 1), byte_of_position_safe (ed_p + 1) in 
             st_p,ed_p
     ))
   |> Option.value ~default:[]
