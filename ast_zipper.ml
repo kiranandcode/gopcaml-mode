@@ -14,282 +14,6 @@ let split_last ls =
   in
   loop ls None
 
-module TextRegion : sig
-
-  module Diff : sig
-    type t
-    val of_pair : line:int -> col:int -> t
-    val combine : t -> t -> t
-    val to_string : t -> string
-    val add_newline_with_indent: indent:int -> t -> t
-    val negate : t -> t 
-    val update_lexing_position : Lexing.position -> t -> Lexing.position 
-  end
-
-  type t
-
-  val of_location: Location.t -> t
-
-  val to_bounds : t -> (int * int)
-
-  val to_string : t -> string
-
-  val pp : t -> string
-
-  val shift_region : t -> Diff.t -> t
-
-  val extend_region : t -> Diff.t -> t
-
-  val union : t -> t -> t
-
-  val before_point : t -> int -> bool
-
-  val contains_point : t -> int -> bool
-
-  val contains_ne_point : t -> int -> bool
-
-  val equals_point : ?forward:bool -> t -> int -> bool
-
-  val ast_bounds_iterator : unit -> Ast_iterator.iterator * (unit -> t)
-
-  val ast_bounds_mapper : diff:Diff.t -> Ast_mapper.mapper
-
-  val distance : ?forward:bool -> t -> int -> int option
-
-  val distance_line : ?forward:bool -> t -> point:int -> line:int -> (int option * int option)
-
-  val line_start : t -> int
-
-  val column_start : t -> int
-
-  val column_end : t -> int
-
-  val to_diff : t -> Diff.t option
-
-  val swap_diff : t -> t -> (Diff.t * Diff.t) option
-
-  val diff_between : t -> t -> Diff.t option
-
-  val to_shift_from_start: t -> Diff.t
-
-end = struct
-
-  module Diff = struct
-    type t = int * int
-
-    let of_pair ~line ~col = (line,col)
-
-    let negate (line,col) = (-line,-col)
-
-    let combine (l1,c1) (l2,c2) = (l1 + l2,c1 + c2)
-
-    let to_string (l1,c1) = Printf.sprintf "(%d,%d)" l1 c1
-
-    (* increments the diff by 1 newline + indentation *)
-    let add_newline_with_indent ~indent (line,col)  =
-      (line + 1, col + 1 + indent)
-
-    let update_lexing_position (pos: Lexing.position) (line,col) : Lexing.position =
-      let cnum = match pos.pos_cnum with -1 -> -1 | _ -> max (pos.pos_cnum + col) (-1) in
-      let lnum = match pos.pos_lnum with -1 -> -1 | _ -> max (pos.pos_lnum + line) (-1) in
-      {pos with pos_cnum = cnum; pos_lnum = lnum}
-
-  end
-
-  module Position = struct
-    type t = {line: int; col: int}
-
-    let of_lexing (pos: Lexing.position) : t =
-      let Lexing.{pos_lnum; pos_cnum; _} = pos in
-      {line=pos_lnum; col = pos_cnum}
-
-    let (+) {line=l1;col=c1} (line,col) =
-      let c1 = match c1 with -1 -> -1 | _ -> max (c1 + col) (-1) in
-      let l1 = match l1 with -1 -> -1 | _ -> max (l1 + line) (-1) in
-      {line=l1; col = c1}
-
-    let cmp f a b = match (a,b) with
-      -1,-1 -> -1
-      | a,-1 -> a
-      | -1,b -> b
-      | a,b -> f a b 
-    let min = cmp min
-    let max = cmp max
-
-    let min {line=l1;col=c1} {line=l2;col=c2} =
-      {line=min l1 l2; col=min c1 c2}
-
-    let max {line=l1;col=c1} {line=l2;col=c2} =
-      {line=max l1 l2; col=max c1 c2}
-
-  end
-
-  type pos = Position.t
-
-  type t = (pos[@opaque]) * (pos[@opaque])
-
-  let to_bounds Position.({col=cs;_},{col=ce; _}) = (cs,ce)
-
-  let to_string Position.({col=cs;line=ls},{col=ce; line=le}) =
-    Printf.sprintf "{col: %d - %d; line: %d - %d}" cs ce ls le
-
-  let pp = to_string
-
-  let shift_region (r_start, r_end) shift =
-    let open Position in
-    r_start + shift, r_end + shift
-
-  let extend_region (r_start, r_end) shift =
-    let open Position in
-    r_start, r_end + shift
-
-  let of_location (loc :Location.t) : t =
-    let st = Position.of_lexing loc.loc_start in
-    let ed = Position.of_lexing loc.loc_end in
-    (st,ed)
-
-  let union (st1,ed1) (st2,ed2) =
-    let open Position in
-    let (st1,ed1) = min st1 ed1, max st1 ed1 in
-    let (st2,ed2) = min st2 ed2, max st2 ed2 in
-    (Position.min st1 st2),(Position.max ed1 ed2)
-
-  let ast_bounds_iterator () =
-    let bounds = ref None in
-    let retrieve_bounds () = Option.value_exn !bounds in
-    let update_bounds pstr_loc =
-      let new_bounds = of_location pstr_loc in
-      let new_bounds = match !bounds with
-        | None -> new_bounds
-        | Some old_bounds -> union old_bounds new_bounds in
-      bounds := Some new_bounds
-    in
-    Ast_iterator.{
-      default_iterator
-      with
-        location = fun _ -> update_bounds
-    }, retrieve_bounds
-
-  let ast_bounds_mapper ~diff =
-    {Ast_mapper.default_mapper with
-     location = (fun _ ({ loc_start; loc_end; _ } as loc) ->
-         {loc with
-          loc_start= Diff.update_lexing_position loc_start diff;
-          loc_end= Diff.update_lexing_position loc_end diff; }
-       ) }
-
-  let before_point (({  col=c1; _ },_):t) point =
-    match c1 with
-    | -1 -> false
-    | a  ->
-      point < a
-
-  let contains_point (({  col=c1; _ },{  col=c2; _ }):t) point =
-    match c1,c2 with
-    | -1,-1 | -1, _ | _, -1 -> false
-    | a, b  ->
-      a <= point && point <= b
-
-  let contains_ne_point (({  col=c1; _ },{  col=c2; _ }):t) point =
-    match c1,c2 with
-    | -1,-1 | -1, _ | _, -1 -> false
-    | a, b  -> a < point && point < b
-
-
-  let equals_point ?forward (({  col=c1; _ },{  col=c2; _ }):t) point =
-    match c1,c2 with
-    | -1,-1 | -1, _ | _, -1 -> false
-    | a, b  ->
-      match forward with
-      | Some true -> a = point
-      | Some false -> b = point
-      | _ -> a = point || point = b
-
-
-  let distance ?forward (({ col=c1; _ },{ col=c2; _ }):t) point =
-    match c1,c2 with
-    | -1,-1 | -1, _ | _, -1 -> None
-    | start, ed  ->
-      match forward with
-      | Some true -> Some (abs (start - point))
-      | Some false -> Some (abs (ed - point))
-      | _ -> Some (min (abs (start - point)) (abs (ed - point)))
-
-  let distance_line ?forward (({ col=c1; line=l1 },{ col=c2; line=l2 }):t) ~point ~line =
-    let diff c1 c2 point = match c1,c2 with
-      | -1,-1 | -1, _ | _, -1 -> None
-      | start, ed  ->
-        match forward with
-        | None -> Some (min (abs (start - point)) (abs (ed - point)))
-        | Some true -> Some (abs (start - point))
-        | Some false -> Some (abs (ed - point))
-    in
-    let diff_line c1 c2 point = match c1,c2 with
-      | -1,-1 | -1, _ | 0,0 | 0,_ | _,0 | _, -1 -> None
-      | start, ed  ->
-        match forward with
-        | None -> Some (min (abs (start - point)) (abs (ed - point)))
-        | Some true -> Some (abs (start - point))
-        | Some false -> Some (abs (ed - point))
-    in
-    let col_diff = diff c1 c2 point in
-    let line_diff = diff_line l1 l2 line in
-    (col_diff, line_diff)
-
-  let line_start (({ line=l1; _ },_):t) = l1
-
-  (* let line_end ((_,{ line=l1; _ }):t) = l1 *)
-
-  let column_start (({ col=c1; _ },_):t) = c1
-
-  let column_end ((_,{ col=c1; _ }):t) = c1
-
-  let to_diff (({ line=l1; col=c1; },{ line=l2; col=c2; }): t) =
-    let (let+) x f = Option.bind ~f x in
-    let unwrap vl = match  vl with -1 -> None | v -> Some v in
-    let+ l1 = unwrap l1 in
-    let+ l2 = unwrap l2 in
-    let+ c1 = unwrap c1 in
-    let+ c2 = unwrap c2 in
-    Some (l1 - l2, c1 - c2)
-
-  let swap_diff
-      (({ line=a_l1; col=a_c1; },{ line=a_l2; col=a_c2; }): t)
-      (({ line=b_l1; col=b_c1; },{ line=b_l2; col=b_c2; }): t) =
-    let (let+) x f = Option.bind ~f x in
-    let unwrap vl = match  vl with -1 -> None | v -> Some v in
-    let+ a_l1 = unwrap a_l1 in
-    let+ a_l2 = unwrap a_l2 in
-    let+ a_c1 = unwrap a_c1 in
-    let+ a_c2 = unwrap a_c2 in
-    let+ b_l1 = unwrap b_l1 in
-    let+ b_l2 = unwrap b_l2 in
-    let+ b_c1 = unwrap b_c1 in
-    let+ b_c2 = unwrap b_c2 in
-    let forward_shift = (a_l2 - b_l2, a_c2 - b_c2) in
-    let backwards_shift = (b_l1 - a_l1, b_c1 - a_c1) in
-    Some (forward_shift,backwards_shift)
-
-  let diff_between
-      ((_, { line=a_l1; col=a_c1; }): t)
-      (({ line=b_l1; col=b_c1; }, _): t) =
-    let (let+) x f = Option.bind ~f x in
-    let unwrap vl = match  vl with -1 -> None | v -> Some v in
-    let+ a_l1 = unwrap a_l1 in
-    let+ a_c1 = unwrap a_c1 in
-    let+ b_l1 = unwrap b_l1 in
-    let+ b_c1 = unwrap b_c1 in
-    let backwards_shift = (a_l1 - b_l1, a_c1 - b_c1) in
-    Some (backwards_shift)
-
-
-  let to_shift_from_start ((_,{ line=a_l2; col=a_c2; }): t) =
-    (a_l2,a_c2)
-
-end
-
-
-
 type unwrapped_type =
   | ConstructorDefinition         (* _ A of b _ *)
   | LabelSpecification            (* _ x : t _ *)
@@ -384,9 +108,9 @@ type t =
   | CoreType of Parsetree.core_type[@opaque]
   | Pattern of Parsetree.pattern[@opaque]
   | Expression of Parsetree.expression[@opaque]
-  | Text of TextRegion.t
-  | Sequence of ((TextRegion.t * unwrapped_type) option * t list * t * t list)[@opaque]
-  | EmptySequence of TextRegion.t * unwrapped_type[@opaque]
+  | Text of Text_region.t
+  | Sequence of ((Text_region.t * unwrapped_type) option * t list * t * t list)[@opaque]
+  | EmptySequence of Text_region.t * unwrapped_type[@opaque]
 
 let rec to_string =
   let truncate ?(n = 15) items =
@@ -423,7 +147,7 @@ let rec to_string =
 type zipper =
   | Top
   | Node of {
-      bounds: (TextRegion.t * unwrapped_type) option;
+      bounds: (Text_region.t * unwrapped_type) option;
       below: t list;
       parent: zipper;
       above: t list;
@@ -435,49 +159,49 @@ type location =
 let rec t_to_bounds = function
   | Text s -> s
   | Signature_item si ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.signature_item iter si;
     get ()
   | Structure_item si ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.structure_item iter si;
     get ()
   | CoreType ct ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.typ iter ct;
     get ()
   | Attribute attr ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.attribute iter attr;
     get ()
   | Type_declaration tdcl ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.type_declaration iter tdcl;
     get ()
   | Value_binding vb ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.value_binding iter vb;
     get ()
   | Pattern pat ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.pat iter pat;
     get ()
   | Expression expr ->
-    let (iter,get) = TextRegion.ast_bounds_iterator () in
+    let (iter,get) = Text_region.ast_bounds_iterator () in
     iter.expr iter expr;
     get ()
   (* if its a sequence, take the union *)
   | Sequence (None, left,elem,right) ->
     List.map ~f:t_to_bounds (left @ right)
-    |> List.fold ~f:(fun  a b  -> TextRegion.union a b ) ~init:(t_to_bounds elem)
+    |> List.fold ~f:(fun  a b  -> Text_region.union a b ) ~init:(t_to_bounds elem)
   | Sequence (Some region, left,elem,right) ->
     List.map ~f:t_to_bounds (left @ elem :: right)
-    |> List.fold ~f:TextRegion.union ~init:(fst region)
+    |> List.fold ~f:Text_region.union ~init:(fst region)
   | EmptySequence (b,_) -> b
 
 let t_shift_by_offset ~diff t =
   let rec map t =
-    let mapper = TextRegion.ast_bounds_mapper ~diff in
+    let mapper = Text_region.ast_bounds_mapper ~diff in
     match t with
     | Signature_item si -> Signature_item (mapper.signature_item mapper si)
     | Structure_item si  -> Structure_item (mapper.structure_item mapper si)
@@ -487,7 +211,7 @@ let t_shift_by_offset ~diff t =
     | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
     | Pattern pat -> Pattern (mapper.pat mapper pat)
     | Expression expr -> Expression (mapper.expr mapper expr)
-    | Text s -> Text (TextRegion.shift_region s diff)
+    | Text s -> Text (Text_region.shift_region s diff)
     | Sequence (bounds, left,elem,right) ->
       let left = List.map ~f:map left in
       let right = List.map ~f:map right in
@@ -495,12 +219,12 @@ let t_shift_by_offset ~diff t =
       let bounds = match bounds with
         | None -> None
         | Some (region,ty) ->
-          let region = TextRegion.shift_region region diff in
+          let region = Text_region.shift_region region diff in
           Some (region,ty)
       in
       Sequence (bounds, left, elem, right)
     | EmptySequence (region,ty)  ->
-      let region = TextRegion.shift_region region diff in
+      let region = Text_region.shift_region region diff in
       EmptySequence (region,ty) in
   map t
 
@@ -508,17 +232,17 @@ let t_list_to_bounds ls =
   match ls with
   | h :: t ->
     List.map ~f:t_to_bounds t
-    |> List.fold ~f:TextRegion.union ~init:(t_to_bounds h)
+    |> List.fold ~f:Text_region.union ~init:(t_to_bounds h)
     |> fun x -> Some x
   | _ -> None
 
 (** converts a zipper to the bounds of the current item *)
 let to_bounds (MkLocation (current,_)) = 
-  TextRegion.to_bounds (t_to_bounds current)
+  Text_region.to_bounds (t_to_bounds current)
 
 (** updates the bounds of the zipper by a fixed offset *)
 let update_bounds ~diff state =
-  let mapper = TextRegion.ast_bounds_mapper ~diff in
+  let mapper = Text_region.ast_bounds_mapper ~diff in
   (* update the bounds of a zipper by a fixed offset *)
   let rec update state =
     match state with
@@ -530,29 +254,29 @@ let update_bounds ~diff state =
     | Type_declaration tdcl -> Type_declaration (mapper.type_declaration mapper tdcl)
     | Pattern pat -> Pattern (mapper.pat mapper pat)
     | Expression expr -> Expression (mapper.expr mapper expr)
-    | Text s -> Text (TextRegion.shift_region s diff)
+    | Text s -> Text (Text_region.shift_region s diff)
     | Sequence (None, l,c,r) ->
       let update_ls = List.map ~f:update in
       Sequence (None, update_ls l, update c, update_ls r)
     | Sequence (Some (region, ty), l,c,r) ->
       let update_ls = List.map ~f:update in
-      let region = TextRegion.shift_region region diff in
+      let region = Text_region.shift_region region diff in
       Sequence (Some (region,ty), update_ls l, update c, update_ls r)
     | EmptySequence (region,ty) ->
-      let region = TextRegion.shift_region region diff in
+      let region = Text_region.shift_region region diff in
       EmptySequence (region,ty)
   in
   update state
 
 let t_sort (ls: t list) =
   ls
-  |> List.map ~f:(fun l -> TextRegion.column_start (t_to_bounds l), l)
+  |> List.map ~f:(fun l -> Text_region.column_start (t_to_bounds l), l)
   |> List.sort ~compare:(fun (l, _) (l', _) -> Int.compare l l')
   |> List.map ~f:(fun (_,l) -> l)
 
 (** convert an arbitrary location delimited element into a text region *)
 let  unwrap_loc ({ loc; _ }: 'a Asttypes.loc) =
-  Text (TextRegion.of_location loc)
+  Text (Text_region.of_location loc)
 
 
 let rec unwrap_extensions ((loc, payload): Parsetree.extension) =
@@ -609,7 +333,7 @@ and unwrap_type_declaration ({
   let loc = unwrap_loc ptype_name in
   let params = List.map ptype_params ~f:(fun (cty, _) -> CoreType cty) in 
   let strs = List.map ptype_cstrs ~f:(fun (c1, c2, _loc) ->
-      (* let range = TextRegion.of_location loc in *)
+      (* let range = Text_region.of_location loc in *)
       let c1 = CoreType c1 in
       let c2 = CoreType c2 in 
       let range =
@@ -634,7 +358,7 @@ and unwrap_module_type
     ({ pmty_desc;
        _ (* pmty_loc; pmty_attributes *) } as mt: Parsetree.module_type) : _ option =
   let range =
-    let iter,get = TextRegion.ast_bounds_iterator () in
+    let iter,get = Text_region.ast_bounds_iterator () in
     iter.module_type iter mt ;
     get ()
   in 
@@ -707,7 +431,7 @@ and unwrap_module_expr
        (* pmod_loc=location; *)
        _ (* pmod_loc; pmod_attributes *) } as expr: Parsetree.module_expr)  =
   let range =
-    let iter,get = TextRegion.ast_bounds_iterator () in 
+    let iter,get = Text_region.ast_bounds_iterator () in 
     iter.module_expr iter expr;
     get ()
   in 
@@ -822,8 +546,7 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
           t_to_bounds sequence
         in
         let bounds = Some (range, LetModuleBinding) in 
-        Sequence (bounds, [], loc, [mexpr])
-    in 
+        Sequence (bounds, [], loc, [mexpr]) in 
     Sequence (bounds, [], modbind, expr)
   | Parsetree.Pexp_letexception (cons, expr) ->
     let expn = unwrap_extension_constructor cons in
@@ -1074,7 +797,7 @@ and unwrap_class_structure ({ pcstr_self; pcstr_fields }:Parsetree.class_structu
   let bounds = Some (range, ClassStructure) in
   Sequence (bounds, [], pat, fields)
 and unwrap_class_fields ({ pcf_desc; pcf_loc; _ (* pcf_loc; pcf_attributes *) }:Parsetree.class_field) =
-  let range = TextRegion.of_location pcf_loc in 
+  let range = Text_region.of_location pcf_loc in 
   match pcf_desc with
   | Parsetree.Pcf_inherit (_, c_e, name) ->
     let c_e = unwrap_class_expr c_e in
@@ -1111,7 +834,7 @@ and unwrap_class_field_kind (cfk: Parsetree.class_field_kind) =
   | Parsetree.Cfk_virtual ct -> CoreType ct
   | Parsetree.Cfk_concrete (_, expr) -> unwrap_expr expr
 and unwrap_class_expr ({ pcl_desc;  pcl_loc=loc; _ }: Parsetree.class_expr) =
-  let range = TextRegion.of_location loc in
+  let range = Text_region.of_location loc in
   match pcl_desc with
   | Parsetree.Pcl_constr (name, types) ->
     let loc = unwrap_loc name in 
@@ -1184,7 +907,7 @@ and unwrap_open_desc ({ popen_expr; (* popen_override; *)
   let bounds = Some (range, ModuleOpen) in
   Sequence (bounds, [], loc, [])
 and unwrap_class_type ({ pcty_desc; pcty_loc; _ }: Parsetree.class_type) =
-  let range = TextRegion.of_location pcty_loc in 
+  let range = Text_region.of_location pcty_loc in 
   match pcty_desc with
   | Parsetree.Pcty_constr (name, types) -> 
     let loc = unwrap_loc name in 
@@ -1221,7 +944,7 @@ and unwrap_class_signature ({ pcsig_self; pcsig_fields }: Parsetree.class_signat
   let bounds = Some (range, ClassSignature) in
   Sequence (bounds, [], ct, fields)
 and unwrap_class_field_type ({ pctf_desc; pctf_loc; _ }: Parsetree.class_type_field) =
-  let range = TextRegion.of_location pctf_loc in
+  let range = Text_region.of_location pctf_loc in
   match pctf_desc with
   | Parsetree.Pctf_inherit ct ->
     let ct = unwrap_class_type ct in
@@ -1300,7 +1023,7 @@ and unwrap_exception ?range ({
     ptyexn_loc;
     _ }: Parsetree.type_exception) =
   let range = match range with
-    | None -> TextRegion.of_location ptyexn_loc
+    | None -> Text_region.of_location ptyexn_loc
     | Some v  -> v in 
   let cons = unwrap_extension_constructor ptyexn_constructor in
   let bounds = Some (range, ExceptionDefinition) in
@@ -1575,9 +1298,9 @@ let at_start current point =
 let rec move_zipper_to_point point line forward loc =
   (* if not forward then Ecaml.message "moving backward"; *)
   let distance region =
-    (* let region_line = TextRegion.line_start region in 
-     * let region_column = TextRegion.column_start region in  *)
-    match TextRegion.distance_line ~forward region ~point ~line with
+    (* let region_line = Text_region.line_start region in 
+     * let region_column = Text_region.column_start region in  *)
+    match Text_region.distance_line ~forward region ~point ~line with
     | None,None -> Int.max_value, Int.max_value
     | None, Some line -> (Int.max_value, line)  
     | Some col, None -> (col, Int.max_value)  
@@ -1589,7 +1312,7 @@ let rec move_zipper_to_point point line forward loc =
       let rec loop ls acc =
         match ls with
         | h :: t ->
-          if TextRegion.contains_point (t_to_bounds h) point
+          if Text_region.contains_point (t_to_bounds h) point
           then Some (acc, h, t)
           else loop t (h :: acc)
         | [] -> None in
@@ -1614,8 +1337,8 @@ let rec move_zipper_to_point point line forward loc =
               not @@ Tuple2.equal ~eq1:Int.equal ~eq2:Int.equal d min
             ) with
           | ([],(_, c) :: r) ->
-            (* let start_col = TextRegion.column_start (t_to_bounds c) in *)
-            let sel_line = TextRegion.line_start (t_to_bounds c) in
+            (* let start_col = Text_region.column_start (t_to_bounds c) in *)
+            let sel_line = Text_region.line_start (t_to_bounds c) in
             let r = List.map ~f:snd r in
             if sel_line > line && (not forward)
             then (MkLocation (Sequence (bounds, [],c,r), parent))
@@ -1632,11 +1355,11 @@ let rec move_zipper_to_point point line forward loc =
     end
   | (MkLocation (current,parent) as v) ->
     let current_bounds =  (t_to_bounds current) in 
-    if TextRegion.equals_point ~forward current_bounds point
+    if Text_region.equals_point ~forward current_bounds point
     then begin
       v
     end
-    else if TextRegion.contains_point current_bounds point
+    else if Text_region.contains_point current_bounds point
     then begin
        match t_descend current with
       | (Sequence _ as s) ->
@@ -1714,12 +1437,12 @@ let zipper_is_first (MkLocation (_, parent)) =
 (** moves the location to the nearest structure item enclosing or around it   *)
 let rec move_zipper_broadly_to_point point line forward loc =
   let distance region =
-    match TextRegion.distance ~forward region point with
+    match Text_region.distance ~forward region point with
     | None -> Int.max_value
     | Some col -> col in
   let contains =
       let MkLocation (current,_) = loc in 
-      let contains = TextRegion.contains_ne_point (t_to_bounds current) point in 
+      let contains = Text_region.contains_ne_point (t_to_bounds current) point in 
       contains
   in
 
@@ -1731,7 +1454,7 @@ let rec move_zipper_broadly_to_point point line forward loc =
       let rec loop ls acc =
         match ls with
         | h :: t ->
-          if TextRegion.contains_point (t_to_bounds h) point
+          if Text_region.contains_point (t_to_bounds h) point
           then Some (acc, h, t)
           else loop t (h :: acc)
         | [] -> None in
@@ -1759,7 +1482,7 @@ let rec move_zipper_broadly_to_point point line forward loc =
           | ([],(_, c) :: r) ->
             let c_bounds = t_to_bounds c in 
             let r = List.map ~f:snd r in
-            if not forward && TextRegion.before_point c_bounds point then
+            if not forward && Text_region.before_point c_bounds point then
               (MkLocation (Sequence (bounds, [],c,r), parent))
             else   
               move_zipper_broadly_to_point point line forward
@@ -1773,7 +1496,7 @@ let rec move_zipper_broadly_to_point point line forward loc =
           end
     end
   | (MkLocation (current,parent) as v) ->
-    if TextRegion.contains_ne_point (t_to_bounds current) point
+    if Text_region.contains_ne_point (t_to_bounds current) point
     then
       begin
         let descend = t_descend current in
@@ -1790,7 +1513,7 @@ let rec move_zipper_broadly_to_point point line forward loc =
             let descend_region =
               (t_to_bounds _current') in
             if (not forward && (zipper_is_first zipper) &&
-                  (TextRegion.before_point descend_region point))
+                  (Text_region.before_point descend_region point))
             then begin
               v
             end
@@ -1809,12 +1532,12 @@ let insert_element (MkLocation (current,parent)) (element: t)  =
     (* range of the current item *)
     let current_range = t_to_bounds current in
     let insert_range = t_to_bounds element in
-    let editing_pos = snd (TextRegion.to_bounds current_range) in
+    let editing_pos = snd (Text_region.to_bounds current_range) in
     (* position of the start of the empty structure *)
     let+ shift_backwards =
-      TextRegion.diff_between current_range insert_range 
-      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0)
-      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) in
+      Text_region.diff_between current_range insert_range 
+      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0)
+      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0) in
 
     let element =
       (* update the structure to be positioned at the right location *)
@@ -1822,20 +1545,20 @@ let insert_element (MkLocation (current,parent)) (element: t)  =
     (* calculate the diff after inserting the item *)
     let+ diff =
       insert_range
-      |> TextRegion.to_diff
+      |> Text_region.to_diff
       (* we're inserting rather than deleting *)
-      |> Option.map ~f:TextRegion.Diff.negate 
+      |> Option.map ~f:Text_region.Diff.negate 
       (* newline after end of current element *)
-      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) 
+      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0) 
       (* 1 more newline and then offset *)
-      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) 
+      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0) 
       (* newline after end of inserted element *)
-      |> Option.map ~f:(TextRegion.Diff.add_newline_with_indent ~indent:0) in
+      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0) in
     let update_bounds = update_bounds ~diff in
     let update_meta_bound bounds = 
       match bounds with
         None -> None
-      | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
+      | Some (bounds,ty) -> Some (Text_region.extend_region bounds diff,ty)
     in
     (* update parent *)
     let rec update_parent parent = match parent with
@@ -1859,7 +1582,7 @@ let go_up (MkLocation (current,parent)) =
     Some (MkLocation (current,parent))
 
 let rec go_left ?left_bounds (MkLocation (current,parent) as loc) =
-  let calculate_bounds (MkLocation (current, _)) = t_to_bounds current |> TextRegion.column_start in 
+  let calculate_bounds (MkLocation (current, _)) = t_to_bounds current |> Text_region.column_start in 
   let left_bounds = match left_bounds with
     | Some v -> v
     | None -> calculate_bounds loc in 
@@ -1876,7 +1599,7 @@ let rec go_left ?left_bounds (MkLocation (current,parent) as loc) =
       else Some zipper
 
 let rec go_right ?right_bounds (MkLocation (current,parent) as loc) =
-  let calculate_bounds (MkLocation (current, _)) = t_to_bounds current |> TextRegion.column_end in 
+  let calculate_bounds (MkLocation (current, _)) = t_to_bounds current |> Text_region.column_end in 
   let right_bounds = match right_bounds with
     | Some v -> v
     | None -> calculate_bounds loc in 
@@ -1896,10 +1619,10 @@ let rec go_right ?right_bounds (MkLocation (current,parent) as loc) =
 let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
   let (let+) x f = Option.bind ~f x in
   let current_bounds =  t_to_bounds current in
-  let+ diff = TextRegion.to_diff current_bounds (* fst current_bounds - snd current_bounds *) in
+  let+ diff = Text_region.to_diff current_bounds (* fst current_bounds - snd current_bounds *) in
   let update_bounds = update_bounds ~diff in
   let update_meta_bound bounds = 
-    match bounds with None -> None | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
+    match bounds with None -> None | Some (bounds,ty) -> Some (Text_region.extend_region bounds diff,ty)
   in
   (* update parent *)
   let rec update_parent parent = match parent with
@@ -1926,7 +1649,7 @@ let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
       Some (MkLocation(l, Node{below=left;parent=up;above=right; bounds}))
     | Node {below=[]; parent=up; above=[]; bounds=(Some (bounds, ty)) } ->
       let up = update_parent up in
-      Some (MkLocation (EmptySequence (TextRegion.extend_region bounds diff,ty), up)) 
+      Some (MkLocation (EmptySequence (Text_region.extend_region bounds diff,ty), up)) 
     | Node {below=[]; parent=up; above=[]; _} ->
       remove_current (MkLocation (current, up)) in
   remove_current loc |> Option.map ~f:(fun v -> v,current_bounds)
@@ -1937,16 +1660,16 @@ let update_zipper_space_bounds (MkLocation (current,parent))
     None
   end
   else 
-    let pre_diff = TextRegion.Diff.of_pair ~line:pre_line ~col:pre_column
-                   |> TextRegion.Diff.negate in
-    let post_diff = TextRegion.Diff.of_pair ~line:post_line ~col:post_column
-                    |> TextRegion.Diff.negate in
+    let pre_diff = Text_region.Diff.of_pair ~line:pre_line ~col:pre_column
+                   |> Text_region.Diff.negate in
+    let post_diff = Text_region.Diff.of_pair ~line:post_line ~col:post_column
+                    |> Text_region.Diff.negate in
     let current = t_shift_by_offset ~diff:pre_diff current in
-    let diff = TextRegion.Diff.combine pre_diff post_diff in
+    let diff = Text_region.Diff.combine pre_diff post_diff in
     let update_bounds = update_bounds ~diff in
     let update_meta_bound bounds = 
       match bounds with None -> None
-                      | Some (bounds,ty) -> Some (TextRegion.extend_region bounds diff,ty)
+                      | Some (bounds,ty) -> Some (Text_region.extend_region bounds diff,ty)
     in
     (* update parent *)
     let rec update_parent parent = match parent with
@@ -1985,7 +1708,7 @@ let move_up (MkLocation (current,_) as loc)  =
   let+ loc =
     loop (Some loc) in
   let+ (loc,insert_pos) = insert_element loc current in
-  Some (loc, insert_pos, TextRegion.to_bounds bounds)
+  Some (loc, insert_pos, Text_region.to_bounds bounds)
 
 let go_start loc =
   match loc with
@@ -2035,7 +1758,7 @@ let move_down (MkLocation (current,_) as loc)  =
     let+ (MkLocation (_,_) as loc) = go_down loc |> Option.map ~f:go_start in
     let+ loc = loop_forward (Some loc) in
     let+ (loc,insert_pos) = insert_element loc current in
-    Some (loc, insert_pos, TextRegion.to_bounds bounds)
+    Some (loc, insert_pos, Text_region.to_bounds bounds)
   end
 
 (** swaps two elements at the same level, returning the new location  *)
@@ -2045,7 +1768,7 @@ let calculate_swap_bounds (MkLocation (current,parent)) =
     let (let+) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
-    let+ (prev_diff,current_diff) = TextRegion.swap_diff current_bounds prev_bounds in
+    let+ (prev_diff,current_diff) = Text_region.swap_diff current_bounds prev_bounds in
     Some (
       current_bounds,
       prev_bounds,
@@ -2066,7 +1789,7 @@ let calculate_swap_forward_bounds (MkLocation (current,parent)) =
     let (let+) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds r in
-    let+ (current_diff,prev_diff) = TextRegion.swap_diff prev_bounds current_bounds in
+    let+ (current_diff,prev_diff) = Text_region.swap_diff prev_bounds current_bounds in
     Some (
       current_bounds,
       prev_bounds,
@@ -2086,7 +1809,7 @@ let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
     let (let+) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
-    let+ (prev_diff,current_diff) = TextRegion.swap_diff current_bounds prev_bounds in
+    let+ (prev_diff,current_diff) = Text_region.swap_diff current_bounds prev_bounds in
     Some (
       current_bounds,
       prev_bounds,
@@ -2125,13 +1848,13 @@ let find_nearest_definition_item_bounds point line forward zipper : _ option =
     | Structure_item {  pstr_loc = { loc_start; loc_end; _ };_ } ->
       get_result loc_start.pos_cnum loc_end.pos_cnum
     | Sequence (Some (bound,_), _,_,_) ->
-      let start_column = TextRegion.column_start bound in
-      let end_column = TextRegion.column_end bound in
+      let start_column = Text_region.column_start bound in
+      let end_column = Text_region.column_end bound in
       get_result start_column end_column
     | Sequence (None, _,_,_) ->
       let bound = (t_to_bounds current) in
-      let start_column = (TextRegion.column_start bound) in
-      let end_column = TextRegion.column_end bound in
+      let start_column = (Text_region.column_start bound) in
+      let end_column = Text_region.column_end bound in
       get_result start_column end_column
     | _ ->
       (go_up zipper) |> Option.bind ~f:loop
@@ -2220,7 +1943,7 @@ let rec  goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
   in
   if is_vb parent && is_pattern current then
     begin
-      let bounds = t_to_bounds current |> TextRegion.column_start in
+      let bounds = t_to_bounds current |> Text_region.column_start in
       (* if the point is at the start of a pattern, then continue suearch up *)
       if not Int.(bounds = point) then
         let result = begin
@@ -2254,19 +1977,19 @@ let rec  goto_nearest_letdef point (MkLocation (current,parent) as loc)  =
 (** finds the nearest enclosing let def  *)
 let find_nearest_letdef point loc  =
   goto_nearest_letdef point loc
-  |> Option.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_start )
+  |> Option.map ~f:(fun v -> t_to_bounds v |> Text_region.column_start )
 
 (** finds the nearest enclosing let def  *)
 let find_nearest_letdef_end point loc  =
   goto_nearest_letdef point loc
-  |> Option.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_end )
+  |> Option.map ~f:(fun v -> t_to_bounds v |> Text_region.column_end )
 
 
 (** finds the nearest enclosing wildcard  *)
 let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =
   if is_pattern current then
     begin
-      let bounds = t_to_bounds current |> TextRegion.column_start in
+      let bounds = t_to_bounds current |> Text_region.column_start in
       (* if the point is at the start of a pattern, then continue suearch up *)
       if not Int.(bounds = point) then
         let result = begin
@@ -2282,7 +2005,7 @@ let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =
           let items = if is_value_binding then List.drop items 1 else items in 
           (* todo: make it more efficient *)
           let items = List.rev items in
-          let items = List.map ~f:(fun v -> t_to_bounds v |> TextRegion.column_start) items in 
+          let items = List.map ~f:(fun v -> t_to_bounds v |> Text_region.column_start) items in 
           List.last items
         end in
         match result with
