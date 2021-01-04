@@ -5,6 +5,7 @@
     - Pressing C-c C-p will now jump to the nearest enclosing wildcard or pattern if no wildcard exists
     - C-c C-o operates as normal for jumping to the nearest let definition
   - *Added support for moving within patterns*
+  - *Added support for moving within types*
   - *improved quality of main Ast_zipper code*
     - more comments
     - refactoring TextRegion module to a separate file so it may be
