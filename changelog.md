@@ -1,6 +1,9 @@
 # Gopcaml Changelog
 
 - Version 0.0.2 - Unicode-lovers & Refactoring release
+  - *Improved support for jumping to nearest pattern*
+    - Pressing C-c C-p will now jump to the nearest enclosing wildcard or pattern if no wildcard exists
+    - C-c C-o operates as normal for jumping to the nearest let definition
   - *Added support for moving within patterns*
   - *improved quality of main Ast_zipper code*
     - more comments
