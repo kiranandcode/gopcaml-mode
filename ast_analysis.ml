@@ -8,8 +8,8 @@ let rec unwrap_longident (li: Longident.t) = match li with
 
 (** given a list of items, removes all elements  *)
 let subtract base removal =
-  List.filter base
-    ~f:(fun v -> not (List.mem ~equal:String.equal removal v))
+  List.filter ~f:(fun v -> not (List.mem ~equal:String.equal removal v))
+    base
 
 let dedup = List.dedup_and_sort ~compare:String.compare
 
@@ -22,12 +22,12 @@ let rec find_variables_exp ({
   | Parsetree.Pexp_constant _ -> []
   | Parsetree.Pexp_let (_, vbs, exp) ->
     let (bound_variables, used_variables) =
-      List.fold_right ~init:([],[]) ~f:(fun vb (bound,used) ->
+      List.fold_right ~f:(fun (vb: Parsetree.value_binding) ((bound: _ list),used) ->
           let (new_bound, new_used) = find_variables_vb vb in
           (* remove any previously bound variables from new_used: *)
           let new_used = subtract new_used bound in
           ((bound @ new_bound), (used @ new_used) )
-        ) vbs in
+        ) vbs ~init:([],[]) in
     let bound_variables = dedup bound_variables in
     let used_variables_in_bindings = List.dedup_and_sort ~compare:String.compare used_variables in
     let used_variables_in_expr = find_variables_exp exp in 
@@ -149,8 +149,11 @@ and  find_variables_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
   match pmod_desc with
   | Parsetree.Pmod_ident _ -> []
   | Parsetree.Pmod_structure str -> List.concat_map ~f:find_variables_si str
-  | Parsetree.Pmod_functor (_, omt, mexp) ->
-    let variables = Option.map ~f:find_variables_mt omt |> Option.value ~default:[] in 
+  | Parsetree.Pmod_functor (omt, mexp) ->
+     let variables =
+       match omt with
+       | Parsetree.Unit -> []
+       | Parsetree.Named (_, mt) -> find_variables_mt mt in
     let expr = find_variables_mexp mexp in
     let all_variables = variables @ expr in
     dedup all_variables
@@ -334,8 +337,10 @@ and find_variables_mt ({ pmty_desc; _ }: Parsetree.module_type) =
   match pmty_desc with
   | Parsetree.Pmty_ident _ -> []
   | Parsetree.Pmty_signature _ -> []
-  | Parsetree.Pmty_functor (_, omt, mt) ->
-    let param_mt = Option.map ~f:find_variables_mt omt |> Option.value ~default:[] in
+  | Parsetree.Pmty_functor (omt, mt) ->
+     let param_mt = match omt with
+       | Parsetree.Unit -> []
+       | Parsetree.Named (_, omt) -> find_variables_mt omt in
     let expr_mt = find_variables_mt mt in
     param_mt @ expr_mt
   | Parsetree.Pmty_with (mt, _) -> find_variables_mt mt
@@ -382,7 +387,7 @@ and find_variables_pat ({ ppat_desc; _ }: Parsetree.pattern) : string list =
     find_variables_pat p1
   | Parsetree.Ppat_type _ -> []
   | Parsetree.Ppat_unpack { txt; _ } ->
-    [txt]
+     txt|> Option.to_list
   | Parsetree.Ppat_extension _ -> []
 and find_variables_case ({ pc_lhs; pc_guard; pc_rhs }: Parsetree.case) =
   let bound_variables = find_variables_pat pc_lhs in
@@ -537,8 +542,10 @@ and  find_pattern_scopes_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
   match pmod_desc with
   | Parsetree.Pmod_ident _ -> []
   | Parsetree.Pmod_structure str -> List.concat_map ~f:find_pattern_scopes_si str
-  | Parsetree.Pmod_functor (_, omt, mexp) ->
-    let variables = Option.map ~f:find_pattern_scopes_mt omt |> Option.value ~default:[] in 
+  | Parsetree.Pmod_functor (omt, mexp) ->
+     let variables = match omt with
+       | Parsetree.Unit -> []
+       | Parsetree.Named (_, omt) -> find_pattern_scopes_mt omt in
     let expr = find_pattern_scopes_mexp mexp in
     let all_variables = variables @ expr in
     all_variables
@@ -717,8 +724,11 @@ and find_pattern_scopes_mt ({ pmty_desc; _ }: Parsetree.module_type) =
   match pmty_desc with
   | Parsetree.Pmty_ident _ -> []
   | Parsetree.Pmty_signature _ -> []
-  | Parsetree.Pmty_functor (_, omt, mt) ->
-    let param_mt = Option.map ~f:find_pattern_scopes_mt omt |> Option.value ~default:[] in
+  | Parsetree.Pmty_functor (omt, mt) ->
+    let param_mt = match omt with
+      | Parsetree.Unit -> []
+      | Parsetree.Named (_, omt) ->
+         find_pattern_scopes_mt omt  in
     let expr_mt = find_pattern_scopes_mt mt in
     param_mt @ expr_mt
   | Parsetree.Pmty_with (mt, _) -> find_pattern_scopes_mt mt
@@ -956,8 +966,10 @@ and  find_scopes_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
         loop t (all_scopes @ acc)
     in
     loop str []
-  | Parsetree.Pmod_functor (_, omt, mexp) ->
-    let variables = Option.map ~f:find_scopes_mt omt |> Option.value ~default:[] in 
+  | Parsetree.Pmod_functor (omt, mexp) ->
+    let variables = match omt with
+      | Parsetree.Unit -> []
+      | Parsetree.Named (_, omt) -> find_scopes_mt omt in
     let expr = find_scopes_mexp mexp in
     let all_variables = variables @ expr in
     all_variables
@@ -1180,8 +1192,10 @@ and find_scopes_mt ({ pmty_desc; _ }: Parsetree.module_type) =
   match pmty_desc with
   | Parsetree.Pmty_ident _ -> []
   | Parsetree.Pmty_signature _ -> []
-  | Parsetree.Pmty_functor (_, omt, mt) ->
-    let param_mt = Option.map ~f:find_scopes_mt omt |> Option.value ~default:[] in
+  | Parsetree.Pmty_functor (omt, mt) ->
+    let param_mt = match omt with
+      | Parsetree.Unit -> []
+      | Parsetree.Named (_, omt) -> find_scopes_mt omt in
     let expr_mt = find_scopes_mt mt in
     param_mt @ expr_mt
   | Parsetree.Pmty_with (mt, _) -> find_scopes_mt mt

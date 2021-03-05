@@ -628,8 +628,10 @@ let inside_let_def state point =
     (Option.map  ~f:is_let_def_expr pc_guard |> Option.value ~default:false) || (is_let_def_expr pc_rhs)
   and is_let_def_mod_type ({ pmty_desc; pmty_loc; _ }: Parsetree.module_type) =
     if contains pmty_loc then (match pmty_desc with
-        | Parsetree.Pmty_functor (_, omt, mt) ->
-          (Option.map ~f:is_let_def_mod_type omt |> Option.value ~default:false) ||
+        | Parsetree.Pmty_functor (omt, mt) ->
+          (match omt with
+           | Parsetree.Unit -> false
+           | Parsetree.Named (_, omt) -> is_let_def_mod_type omt) ||
           is_let_def_mod_type mt
         | Parsetree.Pmty_with (mt, _) -> is_let_def_mod_type mt
         | Parsetree.Pmty_typeof mexpr -> is_let_def_mod_expr mexpr
@@ -639,8 +641,10 @@ let inside_let_def state point =
       (match pmod_desc with
        | Parsetree.Pmod_structure st -> 
          List.fold ~init:false ~f:(fun acc value -> acc || is_let_def_struct value) st
-       | Parsetree.Pmod_functor (_, mt, mexpr) ->
-         (Option.map ~f:is_let_def_mod_type mt |> Option.value ~default:false) ||
+       | Parsetree.Pmod_functor (mt, mexpr) ->
+         (match mt with
+          | Parsetree.Unit -> false
+          | Parsetree.Named (_, mt) -> is_let_def_mod_type mt) ||
          is_let_def_mod_expr mexpr
        | Parsetree.Pmod_constraint (mexpr, mt) -> 
          is_let_def_mod_expr mexpr || is_let_def_mod_type mt

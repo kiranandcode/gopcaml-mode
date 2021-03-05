@@ -798,7 +798,7 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 	     ;; build zipper aronud point
 	     (let
 		 ((area
-		   (car (gopcaml-build-zipper (point) (line-number-at-pos))))
+		   (car (gopcaml-build-zipper (point) (line-number-at-pos) nil)))
 		  start end overlay)
 	       ;; if successfull then perform operation
 	       (if area
@@ -836,7 +836,9 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 	    (gopcaml-zipper-swap #'gopcaml-begin-zipper-swap-forwards)
 	    (setq area (car (gopcaml-retrieve-zipper-bounds))))
 	   (t
+            ;;  failed to set area
 	    (setq area nil)
+            (gopcaml-on-exit-zipper-mode)
 	    nil))
 	  (when area
 	    (move-overlay gopcaml-zipper-overlay (car area) (cadr area))

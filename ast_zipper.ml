@@ -414,9 +414,11 @@ and unwrap_module_type
       let above = List.map ~f:(fun x -> Signature_item x) t in 
       let bounds = Some (range, ModuleSignature) in 
       Some (Sequence (bounds, [], current, above))
-    | Parsetree.Pmty_functor (loc, o_mt, mt) ->
-      let loc = unwrap_loc loc in
-      let o_mt = Option.bind ~f:unwrap_module_type o_mt |> Option.to_list in 
+    | Parsetree.Pmty_functor (omt, mt) ->
+      let loc = Text (Text_region.of_location  mt.pmty_loc) (* unwrap_loc loc *) in
+      let loc, o_mt = match omt with
+        | Parsetree.Unit -> loc, []
+        | Parsetree.Named (loc, mt) -> unwrap_loc loc, unwrap_module_type mt |> Option.to_list in
       let mt = unwrap_module_type mt |> Option.to_list in
       let items = o_mt @ mt in
       let bounds  = Some (range, ModuleTypeFunctor) in
@@ -484,10 +486,13 @@ and unwrap_module_expr
   | Parsetree.Pmod_structure (m :: mt) ->
     let bounds = Some (range,ModuleStructure) in
     Some (Sequence (bounds, [], Structure_item m, List.map ~f:(fun x -> Structure_item x) mt))
-  | Parsetree.Pmod_functor (loc, o_mt, me) ->
+  | Parsetree.Pmod_functor (o_mt, me) ->
     let bounds = Some (range,ModuleFunctor) in
-    let loc = unwrap_loc loc in 
-    let o_mt = Option.bind ~f:unwrap_module_type o_mt |> Option.to_list in
+    let loc, o_mt = match o_mt with
+      | Parsetree.Unit -> Text (Text_region.of_location expr.pmod_loc), []
+      | Parsetree.Named (loc, o_mt) ->
+         unwrap_loc loc, unwrap_module_type o_mt |> Option.to_list
+    in 
     let o_me = match unwrap_module_expr me with
       | None -> []
       | Some (Sequence (Some (_,ModuleFunctor), [], h, t)) -> h :: t

@@ -1,4 +1,4 @@
-(lang dune 2.1)
+(lang dune 1.10)
 (package
  (name gopcaml-mode)
  (synopsis "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs")
