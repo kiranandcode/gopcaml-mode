@@ -6,10 +6,7 @@
  (depends
  (core (>= 0.13.0))
  (ppx_deriving (>= 4.4))
- (ecaml (>= 0.13.0))
- (ocaml-compiler-libs (>= 0.12.1))
- )
- )
+ (ecaml (>= 0.13.0))))
 (version 0.0.1)
 (name gopcaml-mode)
 (generate_opam_files true)

@@ -1727,7 +1727,7 @@ let rec move_zipper_broadly_to_point point line forward loc =
   else loc
 
 let insert_element (MkLocation (current,parent)) (element: t)  =
-  let (let+) x f = Option.bind ~f x in
+  let (>>=) x f = Option.bind ~f x in
   match parent with
   | Top -> None
   | Node {below; parent; above; bounds} ->
@@ -1736,17 +1736,15 @@ let insert_element (MkLocation (current,parent)) (element: t)  =
     let insert_range = t_to_bounds element in
     let editing_pos = snd (Text_region.to_bounds current_range) in
     (* position of the start of the empty structure *)
-    let+ shift_backwards =
-      Text_region.diff_between current_range insert_range 
+      (Text_region.diff_between current_range insert_range 
       |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0)
-      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0) in
+      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0)) >>= fun shift_backwards ->
 
     let element =
       (* update the structure to be positioned at the right location *)
       t_shift_by_offset ~diff:shift_backwards element in
     (* calculate the diff after inserting the item *)
-    let+ diff =
-      insert_range
+    (insert_range
       |> Text_region.to_diff
       (* we're inserting rather than deleting *)
       |> Option.map ~f:Text_region.Diff.negate 
@@ -1755,7 +1753,7 @@ let insert_element (MkLocation (current,parent)) (element: t)  =
       (* 1 more newline and then offset *)
       |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0) 
       (* newline after end of inserted element *)
-      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0) in
+      |> Option.map ~f:(Text_region.Diff.add_newline_with_indent ~indent:0)) >>= fun diff -> 
     let update_bounds = update_bounds ~diff in
     let update_meta_bound bounds = 
       match bounds with
@@ -1819,9 +1817,9 @@ let rec go_right ?right_bounds (MkLocation (current,parent) as loc) =
 
 (** deletes the current element of the zipper  *)
 let calculate_zipper_delete_bounds (MkLocation (current,_) as loc) =
-  let (let+) x f = Option.bind ~f x in
+  let (>>=) x f = Option.bind ~f x in
   let current_bounds =  t_to_bounds current in
-  let+ diff = Text_region.to_diff current_bounds (* fst current_bounds - snd current_bounds *) in
+  (Text_region.to_diff current_bounds) >>= fun diff -> 
   let update_bounds = update_bounds ~diff in
   let update_meta_bound bounds = 
     match bounds with None -> None | Some (bounds,ty) -> Some (Text_region.extend_region bounds diff,ty)
@@ -1898,18 +1896,17 @@ let move_up (MkLocation (current,_) as loc)  =
       if not (is_top_level_parent parent) then
         loop (go_up loc)
       else Some (loc) in 
-  let (let+) x f = Option.bind ~f x in
-  let+ loc = loop (Some loc) in
-  let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
+  let (>>=) x f = Option.bind ~f x in
+  (loop (Some loc)) >>= fun loc -> 
+  (calculate_zipper_delete_bounds loc) >>= fun (loc,bounds) ->
   (*  first we go up once - this is the enclosing structure:
       module S = struct _ ... _ end
       ->
       module S = _ struct  ...  end _
   *)
-  let+ loc = go_up loc in
-  let+ loc =
-    loop (Some loc) in
-  let+ (loc,insert_pos) = insert_element loc current in
+  (go_up loc) >>= fun loc ->
+  (loop (Some loc)) >>= fun loc -> 
+  (insert_element loc current) >>= fun (loc,insert_pos) ->
   Some (loc, insert_pos, Text_region.to_bounds bounds)
 
 let go_start loc =
@@ -1953,13 +1950,12 @@ let move_down (MkLocation (current,_) as loc)  =
       else Some loc
   in 
   begin
-    let (let+) x f = Option.bind ~f x in
-    let+ loc = loop (Some loc) in
-
-    let+ (loc,bounds) = calculate_zipper_delete_bounds loc in
-    let+ (MkLocation (_,_) as loc) = go_down loc |> Option.map ~f:go_start in
-    let+ loc = loop_forward (Some loc) in
-    let+ (loc,insert_pos) = insert_element loc current in
+    let (>>=) x f = Option.bind ~f x in
+    (loop (Some loc)) >>= fun loc -> 
+    (calculate_zipper_delete_bounds loc) >>= fun (loc,bounds) -> 
+    (go_down loc |> Option.map ~f:go_start) >>= fun (MkLocation (_,_) as loc) -> 
+    (loop_forward (Some loc)) >>= fun loc -> 
+    (insert_element loc current) >>= fun (loc,insert_pos) -> 
     Some (loc, insert_pos, Text_region.to_bounds bounds)
   end
 
@@ -1967,10 +1963,10 @@ let move_down (MkLocation (current,_) as loc)  =
 let calculate_swap_bounds (MkLocation (current,parent)) =
   match parent with
   | Node { below=l::left; parent; above=r::right; bounds } ->
-    let (let+) x f = Option.bind ~f x in
+    let (>>=) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
-    let+ (prev_diff,current_diff) = Text_region.swap_diff current_bounds prev_bounds in
+    (Text_region.swap_diff current_bounds prev_bounds) >>= fun (prev_diff,current_diff) -> 
     Some (
       current_bounds,
       prev_bounds,
@@ -1988,10 +1984,10 @@ let calculate_swap_bounds (MkLocation (current,parent)) =
 let calculate_swap_forward_bounds (MkLocation (current,parent)) =
   match parent with
   | Node { below=left; parent; above=r::right; bounds } ->
-    let (let+) x f = Option.bind ~f x in
+    let (>>=) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds r in
-    let+ (current_diff,prev_diff) = Text_region.swap_diff prev_bounds current_bounds in
+    (Text_region.swap_diff prev_bounds current_bounds) >>= fun (current_diff,prev_diff) -> 
     Some (
       current_bounds,
       prev_bounds,
@@ -2008,10 +2004,10 @@ let calculate_swap_forward_bounds (MkLocation (current,parent)) =
 let calculate_swap_backwards_bounds (MkLocation (current,parent)) =
   match parent with
   | Node { below=l::left; parent; above=right; bounds } ->
-    let (let+) x f = Option.bind ~f x in
+    let (>>=) x f = Option.bind ~f x in
     let current_bounds =  t_to_bounds current in
     let prev_bounds = t_to_bounds l in
-    let+ (prev_diff,current_diff) = Text_region.swap_diff current_bounds prev_bounds in
+    (Text_region.swap_diff current_bounds prev_bounds) >>= fun (prev_diff,current_diff) ->
     Some (
       current_bounds,
       prev_bounds,
@@ -2229,9 +2225,9 @@ let rec find_nearest_pattern point (MkLocation (current,parent) as loc)  =
              - no pattern return last
           *)
           let result =
-            let (let+) x f = match x with Some v -> Some v | None -> f () in
-            let+ () = List.find_map ~f:find_wildcard items in
-            let+ () = List.find_map ~f:find_pattern_variable items in
+            let (>>=) x f = match x with Some v -> Some v | None -> f () in
+            (List.find_map ~f:find_wildcard items) >>= fun () -> 
+            (List.find_map ~f:find_pattern_variable items) >>= fun () -> 
             List.last items in
           Option.map ~f:(fun v -> t_to_bounds v |> Text_region.column_start) result
         end in

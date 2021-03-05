@@ -386,9 +386,9 @@ module State = struct
     (** builds a validated instance of gopcaml-state  -
         returning a new copy of the state if it has changed*)
     let of_state (state: t)  =
-      let (let+) x f = Option.bind ~f x in
+      let (>>=) x f = Option.bind ~f x in
       let should_store = ref false in
-      let+ parse_tree = DirtyRegion.to_tree state.parse_tree state.file_type in
+      (DirtyRegion.to_tree state.parse_tree state.file_type) >>= fun parse_tree -> 
       if DirtyRegion.is_dirty state.parse_tree then should_store := true;
       if !should_store then
         Some ({file_type=state.file_type; parse_tree},
@@ -492,10 +492,10 @@ let set_gopcaml_file_type ?current_buffer ~state_var file_type =
 let find_enclosing_expression list point =
   let open State in
   let (left,remain) = List.split_while list ~f:(fun (region,_) ->
-      let (let+) v f = Option.bind ~f v in
+      let (>>=) v f = Option.bind ~f v in
       let contains = 
-        let+ start_position = Marker.position region.start_mark in
-        let+ end_position = Marker.position region.end_mark in           
+        (Marker.position region.start_mark) >>= fun start_position -> 
+        (Marker.position region.end_mark) >>= fun end_position -> 
         Some (not @@ Position.between ~low:start_position ~high:end_position point) in
       Option.value ~default:true contains) in 
   let remove_region = List.map ~f:(fun (_,b) -> b) in
@@ -509,19 +509,19 @@ let find_nearest_expression list point =
   match find_enclosing_expression list point with
   | None ->
     (* no enclosing expression - hence, find nearest expression *)
-    let (let+) v f = Option.bind ~f v in
+    let (>>=) v f = Option.bind ~f v in
     let distance ((region,_) as value) =
       let distance = 
-        let+ start_position = Marker.position region.start_mark in
-        let+ end_position = Marker.position region.end_mark in
+        (Marker.position region.start_mark) >>= fun start_position -> 
+        (Marker.position region.end_mark) >>= fun end_position -> 
         Some (min (abs (Position.to_int start_position - Position.to_int point))
                 (abs (Position.to_int end_position - Position.to_int point))) in
       distance, value in
     let regions = List.map list ~f:distance in
-    let+ (min, _) = List.min_elt ~compare:(fun (d,_) (d',_) ->
+    (List.min_elt ~compare:(fun (d,_) (d',_) ->
         let d = match d with Some v -> v | None -> Int.max_value in
         let d' = match d' with Some v -> v | None -> Int.max_value in
-        Int.compare d d') regions in
+        Int.compare d d') regions) >>= fun (min, _) -> 
     let eq = Option.equal (Int.equal) in
     let remove_meta (_,(_,v)) = v in
     begin match List.split_while regions ~f:(fun (d,_)  -> not @@ eq d min)  with
@@ -544,8 +544,8 @@ let list_split_last ls =
 
 let build_zipper (state: State.Validated.t) point =
   let find_nearest_prev_expression f list =
-    let (let+) v f = Option.bind ~f v in
-    let+ (left,current,right) = find_nearest_expression list point in
+    let (>>=) v f = Option.bind ~f v in
+    (find_nearest_expression list point) >>= fun (left,current,right) -> 
     if (f current) = (Position.to_byte_position point)
     then begin
       match list_split_last left with
@@ -573,10 +573,10 @@ let find_enclosing_structure (state: State.Validated.t) point : State.parse_item
   let open Validated in
   let find_enclosing_expression list = 
     List.find list ~f:(fun (region,_) ->
-        let (let+) v f = Option.bind ~f v in
+        let (>>=) v f = Option.bind ~f v in
         let contains = 
-          let+ start_position = Marker.position region.start_mark in
-          let+ end_position = Marker.position region.end_mark in           
+          (Marker.position region.start_mark) >>= fun start_position -> 
+          (Marker.position region.end_mark) >>= fun end_position -> 
           Some (Position.between ~low:start_position ~high:end_position point) in
         Option.value ~default:false contains) in
   match state.parse_tree with 
@@ -794,10 +794,10 @@ let find_enclosing_structure_bounds (state: State.Validated.t) ~point =
 
 (** updates the dirty region of the parse tree *)
 let update_dirty_region ?current_buffer ~state_var (s,e,l) =
-  let (let+) x f = ignore @@ Option.map ~f x in
+  let (>>=) x f = ignore @@ Option.map ~f x in
   let open State in
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
-  let+ state = Buffer_local.get state_var current_buffer in
+  (Buffer_local.get state_var current_buffer) >>= fun state -> 
   let parse_tree = DirtyRegion.update state.parse_tree (s,e,l) in
   let state = {state with parse_tree = parse_tree} in
   Buffer_local.set state_var (Some state) current_buffer
@@ -816,8 +816,8 @@ let get_dirty_region ?current_buffer ~state_var ()  =
 let retrieve_gopcaml_state ?current_buffer ~state_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   let state = Buffer_local.get_exn state_var current_buffer in
-  let (let+) x f = Option.bind ~f x in
-  let+ (v_state,state) = State.Validated.of_state state in
+  let (>>=) x f = Option.bind ~f x in
+  (State.Validated.of_state state) >>= fun (v_state,state) -> 
   if Option.is_some state then Buffer_local.set state_var state current_buffer;
   Some v_state
 

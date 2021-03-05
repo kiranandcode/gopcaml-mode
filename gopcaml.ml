@@ -483,11 +483,11 @@ let define_functions () =
      vars ())
 
 let is_excluded_file () =
-  let (let+) x f = Option.bind x ~f in
+  let (>>=) x f = Option.bind x ~f in
   let ignored_extensions = Customization.value Customizable.ignored_extensions_var in
   let result = 
-    let+ file_name = Current_buffer.file_name () in
-    let+ ext = (String.split ~on:'.' file_name |> List.last) in
+    (Current_buffer.file_name ()) >>= fun file_name ->
+    (String.split ~on:'.' file_name |> List.last) >>= fun ext -> 
     Some (List.mem ~equal:String.equal  ignored_extensions ext) in
   Option.value ~default:false result
 

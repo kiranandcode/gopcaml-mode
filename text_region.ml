@@ -171,27 +171,27 @@ let column_start (({ col=c1; _ },_):t) = c1
 let column_end ((_,{ col=c1; _ }):t) = c1
 
 let to_diff (({ line=l1; col=c1; },{ line=l2; col=c2; }): t) =
-  let (let+) x f = Option.bind ~f x in
+  let (>>=) x f = Option.bind ~f x in
   let unwrap vl = match  vl with -1 -> None | v -> Some v in
-  let+ l1 = unwrap l1 in
-  let+ l2 = unwrap l2 in
-  let+ c1 = unwrap c1 in
-  let+ c2 = unwrap c2 in
+  (unwrap l1) >>= fun l1 -> 
+  (unwrap l2) >>= fun l2 -> 
+  (unwrap c1) >>= fun c1 -> 
+  (unwrap c2) >>= fun c2 -> 
   Some (l1 - l2, c1 - c2)
 
 let swap_diff
     (({ line=a_l1; col=a_c1; },{ line=a_l2; col=a_c2; }): t)
     (({ line=b_l1; col=b_c1; },{ line=b_l2; col=b_c2; }): t) =
-  let (let+) x f = Option.bind ~f x in
+  let (>>=) x f = Option.bind ~f x in
   let unwrap vl = match  vl with -1 -> None | v -> Some v in
-  let+ a_l1 = unwrap a_l1 in
-  let+ a_l2 = unwrap a_l2 in
-  let+ a_c1 = unwrap a_c1 in
-  let+ a_c2 = unwrap a_c2 in
-  let+ b_l1 = unwrap b_l1 in
-  let+ b_l2 = unwrap b_l2 in
-  let+ b_c1 = unwrap b_c1 in
-  let+ b_c2 = unwrap b_c2 in
+  (unwrap a_l1) >>= fun a_l1 -> 
+  (unwrap a_l2) >>= fun a_l2 -> 
+  (unwrap a_c1) >>= fun a_c1 -> 
+  (unwrap a_c2) >>= fun a_c2 -> 
+  (unwrap b_l1) >>= fun b_l1 -> 
+  (unwrap b_l2) >>= fun b_l2 -> 
+  (unwrap b_c1) >>= fun b_c1 -> 
+  (unwrap b_c2) >>= fun b_c2 -> 
   let forward_shift = (a_l2 - b_l2, a_c2 - b_c2) in
   let backwards_shift = (b_l1 - a_l1, b_c1 - a_c1) in
   Some (forward_shift,backwards_shift)
@@ -199,12 +199,12 @@ let swap_diff
 let diff_between
     ((_, { line=a_l1; col=a_c1; }): t)
     (({ line=b_l1; col=b_c1; }, _): t) =
-  let (let+) x f = Option.bind ~f x in
+  let (>>=) x f = Option.bind ~f x in
   let unwrap vl = match  vl with -1 -> None | v -> Some v in
-  let+ a_l1 = unwrap a_l1 in
-  let+ a_c1 = unwrap a_c1 in
-  let+ b_l1 = unwrap b_l1 in
-  let+ b_c1 = unwrap b_c1 in
+  (unwrap a_l1) >>= fun a_l1 -> 
+  (unwrap a_c1) >>= fun a_c1 -> 
+  (unwrap b_l1) >>= fun b_l1 -> 
+  (unwrap b_c1) >>= fun b_c1 -> 
   let backwards_shift = (a_l1 - b_l1, a_c1 - b_c1) in
   Some (backwards_shift)
 
