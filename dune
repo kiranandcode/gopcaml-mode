@@ -1,6 +1,6 @@
 (executable
  (name gopcaml)
- (libraries core containers ppx_deriving ecaml compiler-libs.common)
+ (libraries core ecaml compiler-libs.common)
  (preprocess (pps ppx_let ppx_here ppx_deriving.show ppx_sexp_conv))
  (modes (native shared_object))
 )
