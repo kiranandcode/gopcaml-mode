@@ -1,9 +1,11 @@
 (executable
  (name gopcaml)
- (libraries core ecaml compiler-libs.common)
+ (libraries core ecaml generic_parser ocaml-migrate-parsetree)
  (preprocess (pps ppx_let ppx_here ppx_deriving.show ppx_sexp_conv))
  (modes (native shared_object))
-)
+ (flags "-w" "-33"))
+
+
 (install
  (section share_root)
  (files (gopcaml-mode.el as emacs/site-lisp/gopcaml-mode.el)

@@ -1,4 +1,5 @@
 open Core
+open Generic_types
 
 (* returns total bounds of the current item *)
 let bounds_iterator () =

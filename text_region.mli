@@ -1,3 +1,5 @@
+open Generic_types
+
 module Diff : sig
   type t
   val of_pair : line:int -> col:int -> t

@@ -11,7 +11,7 @@ authors: ["Kiran Gopinathan"]
 bug-reports: "https://gitlab.com/gopiandcode/gopcaml-mode/issues"
 homepage: "https://gitlab.com/gopiandcode/gopcaml-mode"
 license: "GPL-3.0-only"
-version: "0.0.1"
+version: "0.0.2"
 dev-repo: "git+https://gitlab.com/gopiandcode/gopcaml-mode.git"
 synopsis:
   "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs"

@@ -6,6 +6,7 @@
  (depends
  (core (>= 0.13.0))
  (ppx_deriving (>= 4.4))
+ (ocaml-migrate-parsetree (>= 2.1.0))
  (ecaml (>= 0.13.0))))
 (version 0.0.1)
 (name gopcaml-mode)

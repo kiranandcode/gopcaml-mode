@@ -1,4 +1,6 @@
 open Core
+open Generic_types
+
 
 let rec unwrap_longident (li: Longident.t) = match li with
   | Longident.Lident l -> [l]

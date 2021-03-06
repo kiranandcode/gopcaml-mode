@@ -2,6 +2,7 @@
 
 - Version 0.0.2 - Unicode-lovers & Refactoring release
   - *Updated to work with OCaml 4.12.0*
+    - Updated to depend on ocaml-migrate-parsetree, back-porting support back to OCaml.4.08.0+
   - *Improved support for jumping to nearest pattern*
     - Pressing C-c C-p will now jump to the nearest enclosing wildcard or pattern if no wildcard exists
     - C-c C-o operates as normal for jumping to the nearest let definition
@@ -27,5 +28,6 @@
       multi-byte buffers
     - now our unicode using foriegn-language friends can too enjoy the
       power of Gopcaml mode!
+  - *Fixed bug with transpose expression*
 
 - Version 0.0.1 - Initial release

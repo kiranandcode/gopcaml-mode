@@ -1,4 +1,5 @@
 open Core
+open Generic_types
 
 let split_last ls =
   let rec loop ls acc =
@@ -142,10 +143,7 @@ let rec to_string =
   in 
   function
   | Signature_item _si ->
-    let formatter = Format.str_formatter in
-    Pprintast.signature formatter [_si];
-    let str = Format.flush_str_formatter () in 
-    (Printf.sprintf "Signature_item {%s}" (truncate str))
+    (Printf.sprintf "Signature_item")
   | Structure_item _si -> "Structure_item" (* " - {" ^ (Pprintast.string_of_structure [si]) ^ "}" *)
   | Value_binding _ -> "Value_binding"
   | Type_declaration _ -> "Type_declaration"

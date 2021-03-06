@@ -1,5 +1,6 @@
 open Core
 open Ecaml
+open Generic_types
 
 let byte_of_position_safe pos = if Int.(pos = 0) then Position.of_int_exn pos else Position.of_byte_position pos
 
@@ -146,13 +147,13 @@ module State = struct
 
     let build_implementation_tree =
       build_abstract_tree
-        Parse.implementation
+        Generic_parser.implementation
         (fun iterator item -> iterator.structure_item iterator item)
         (fun x -> Impl x)
 
     let build_interface_tree =
       build_abstract_tree
-        Parse.interface
+        Generic_parser.interface
         (fun iterator item -> iterator.signature_item iterator item)
         (fun x -> Intf x)
 
@@ -1115,7 +1116,7 @@ let find_variables_region text =
   try
     let exp =
       let lexbuf = Lexing.from_string ~with_positions:true text in
-      Parse.expression lexbuf
+      Generic_parser.expression lexbuf
     in 
     Ast_analysis.find_variables_exp exp
   with
