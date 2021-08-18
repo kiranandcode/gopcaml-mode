@@ -190,7 +190,7 @@ module State = struct
     let parse_current_buffer ?start ?end_ file_type =
       (* retrieve the text for the entire buffer *)
       let buffer_text =
-        Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
+        Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes |> Preprocessing.preprocess  in
       let perform_parse () = 
         message ~at:`info "Building parse tree - may take a while if the file is large...";
         let start_time = Time.now () in

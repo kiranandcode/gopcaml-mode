@@ -96,7 +96,6 @@ By default it is disabled on ocamllex and menhir files as they do not conform to
       ~standard_value:`info
       ()
 
-
 end
 
 let define_functions () =
