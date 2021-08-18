@@ -4,6 +4,11 @@ open Generic_types
 
 let byte_of_position_safe pos = if Int.(pos = 0) then Position.of_int_exn pos else Position.of_byte_position pos
 
+let prev_byte_position point =
+  if Position.to_int point <= 1
+  then Position.to_byte_position point
+  else Position.to_byte_position Position.(sub point 1)
+
 let message ?at msg = Logging.message ?at msg
 
 module State = struct
@@ -872,7 +877,7 @@ let build_zipper_enclosing_point ?direction ?current_buffer ~state_var ~zipper_v
   |> Option.bind ~f:(fun state ->
       let zipper = build_zipper state point
                    |> Option.map ~f:(Ast_zipper.move_zipper_to_point
-                                       (Position.to_byte_position Position.(sub point 1))
+                                       (prev_byte_position point)
                                        line direction) in
       Buffer_local.set zipper_var zipper current_buffer;
       zipper)

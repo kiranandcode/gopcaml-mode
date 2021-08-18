@@ -212,7 +212,7 @@ let define_functions () =
      let direction = match direction with
        | None
        | Some (Forward) -> true
-       | _ -> false in 
+       | _ -> false in
      Gopcaml_state.build_zipper_enclosing_point
        ~direction
        ~state_var:Variables.state_var ~zipper_var:Variables.zipper_var point line
@@ -519,7 +519,6 @@ let gopcaml_mode =
     ~initialize:((Returns Value.Type.unit),
                  fun () ->
                    let () = Logging.setup_logging Customizable.messaging_level_var in
-
                    if not (is_excluded_file ()) then begin
                      let _ =  (Gopcaml_state.setup_gopcaml_state
                                  ~state_var:Variables.state_var
