@@ -1,5 +1,11 @@
 # Gopcaml Changelog
 
+- Version 0.0.3 - Polishing release
+  - *Added support for customisable verbosity*
+    - Customise the Emacs variable `gopcaml-messaging-level` to change
+      the level of messages that are output by GopCaml. Set it to
+      `'none` to disable messages entirely.
+
 - Version 0.0.2 - Unicode-lovers & Refactoring release
   - *Updated to work with OCaml 4.12.0*
     - Updated to depend on ocaml-migrate-parsetree, back-porting support back to OCaml.4.08.0+
