@@ -40,7 +40,7 @@
 								   )))))))
  (t
   (message "loading gopcaml-mode [normal]")
-  (let ((opam-lib (ignore-errors (car (process-lines "opam" "config" "var" "lib")))))
+  (let ((opam-lib (ignore-errors (car (process-lines "opam" "var" "lib")))))
     (if (and opam-lib (file-directory-p opam-lib))
 	(require 'gopcaml (expand-file-name "./gopcaml-mode/gopcaml.so" opam-lib))
       (error "Could not find opam - please make sure it is installed")
