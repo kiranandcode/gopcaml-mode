@@ -254,19 +254,17 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 	;; i.e we're holding shift, but haven't selecting anything
 	(progn
 	  (push-mark (point))
-	  (activate-mark))
-      )
+	  (activate-mark)))
 
     ;;  if not already in zipper mode
     (if (not gopcaml-zipper)
-	;; build zipper aronud point
+	;; build zipper around point
 	(progn
 	  (cond
 	   ((equal direction 'forward)
 	    (skip-chars-forward " \n\t"))
 	   ((equal direction 'backward)
-	    (skip-chars-backward " \n\t")
-	    ))
+	    (skip-chars-backward " \n\t")))
 	  (let ((area
 		 (car (funcall zipper-constructor
 			       (point)
@@ -628,7 +626,6 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 
 (defun gopcaml-zipper-ensure-space ()
   "Ensures-spacing between current element."
-  (message "%s" (car (gopcaml-zipper-is-top-level)))
   (if (and (car (gopcaml-zipper-is-top-level)) (car (gopcaml-zipper-is-top-level-parent)))
       (let
 	  ((area (car (gopcaml-retrieve-zipper-bounds)))
@@ -1011,12 +1008,9 @@ END is the end of the edited text region."
   (let ((text (buffer-substring-no-properties start end))
 	bounds)
     (setq bounds (car (gopcaml-find-extract-scope text start end)))
-    (message "got %s" bounds)
     (when (and bounds)
-      (message text)
-      (gopcaml-temporarily-highlight-region bounds)
-      )
-    ))
+      (gopcaml-temporarily-highlight-region bounds))))
+
 (defun gopcaml-list-pattern-scopes ()
   "Highlight all patterns in the current item."
   (interactive)

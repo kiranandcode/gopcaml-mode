@@ -18,7 +18,7 @@ synopsis:
 description:
   "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs."
 depends: [
-  "ocaml" {>= "4.08.0" & < "4.13.0"}
+  "ocaml" {>= "4.08.0"}
   "core" {>= "0.13.0"}
   "ppx_deriving" {>= "4.4"}
   "ocaml-migrate-parsetree" {>= "2.1.0"}

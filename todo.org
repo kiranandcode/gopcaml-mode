@@ -102,13 +102,18 @@
 ** TODO M-k - kill sentence - kill module
 ** TODO C-M-l reposition to buffer - fix to work with ocaml
 * Longer term Todos
-** TODO move to (??) type holes with C-n C-p if present in function DWIM
+** DONE move to (??) type holes with C-n C-p if present in function DWIM
+   CLOSED: [2021-08-18 Wed 11:22]
 *** Write function to check if current buffer contains any type holes
 *** Write function to return position of next type hole
-** TODO add expression and more functionality to zipper
-** TODO integrate with merlin (d)estruct/(l)ocate
-** TODO Extract binding
-** TODO Highlight regions
+** DONE add expression and more functionality to zipper
+   CLOSED: [2021-08-18 Wed 11:22]
+** DONE integrate with merlin (d)estruct/(l)ocate
+   CLOSED: [2021-08-18 Wed 11:22]
+** DONE Extract binding
+   CLOSED: [2021-08-18 Wed 11:22]
+** DONE Highlight regions
+   CLOSED: [2021-08-18 Wed 11:22]
 *** Add function to find all repetitions of enclosing expression
 *** add function to highlight all these bounds temporarily
 *** add-on-idle function to run highlight on delay
@@ -117,4 +122,8 @@
 *** If point on the same line, then use current item
 *** Use line distance rather than character distance  (makes more sense)
 *** In case of tie then use column
-
+* Tasks
+** DONE Implement customisable logging
+   CLOSED: [2021-08-18 Wed 14:03]
+*** Setup variable to track logging
+*** Create logging variable
