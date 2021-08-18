@@ -1,9 +1,9 @@
 open Core
 open Ecaml
 
-let version = 0.2
+let version = 0.3
 
-let gopcaml_version = "0.0.2"
+let gopcaml_version = "0.0.3"
 
 module Variables = struct
 
