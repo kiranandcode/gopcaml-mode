@@ -1,3 +1,4 @@
+[@@@warning "-26"]
 open Core
 open Generic_types
 

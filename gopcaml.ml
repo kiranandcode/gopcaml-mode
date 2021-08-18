@@ -80,6 +80,23 @@ By default it is disabled on ocamllex and menhir files as they do not conform to
       ~customization_type:(Customization.Type.Repeat Customization.Type.String)
       ~standard_value:["ml"]
       ()
+
+  let messaging_level_var = Customization.defcustom
+      ~show_form:true
+      ("gopcaml-messaging-level" |> Symbol.intern)
+      [%here]
+      ~group:gopcaml_group
+      ~docstring:{|
+      Control the level of messages sent out by GopCaml-mode.Re
+
+      Must be one of either 'debug, 'verbose, 'info, 'none.
+    |}
+      ~type_: (Logging.Level.ty)
+      ~customization_type:(Logging.Level.custom_ty)
+      ~standard_value:`info
+      ()
+
+
 end
 
 let define_functions () =
@@ -487,7 +504,7 @@ let is_excluded_file () =
   let result = 
     (Current_buffer.file_name ()) >>= fun file_name ->
     (String.split ~on:'.' file_name |> List.last) >>= fun ext -> 
-    Some (List.mem ~equal:String.equal  ignored_extensions ext) in
+    Some (List.mem ~equal:String.equal ignored_extensions ext) in
   Option.value ~default:false result
 
 let gopcaml_mode =
@@ -501,8 +518,9 @@ let gopcaml_mode =
     ~parent:Major_mode.Tuareg.major_mode
     ~initialize:((Returns Value.Type.unit),
                  fun () ->
+                   let () = Logging.setup_logging Customizable.messaging_level_var in
+
                    if not (is_excluded_file ()) then begin
-                     message "Building initial state";
                      let _ =  (Gopcaml_state.setup_gopcaml_state
                                  ~state_var:Variables.state_var
                                  ~interface_extension_var:Customizable.interface_extensions_var

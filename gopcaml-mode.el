@@ -267,7 +267,6 @@ SKIP-ZIPPER-MODE if set will prevent the activation zipper mode."
 	   ((equal direction 'backward)
 	    (skip-chars-backward " \n\t")
 	    ))
-	  (message "calling constructor with %s" direction)
 	  (let ((area
 		 (car (funcall zipper-constructor
 			       (point)
@@ -1083,7 +1082,6 @@ END is the end of the edited text region."
 ;; As the mode itself is defined within the dynamic module, the code below sets up the buffer using a hook
 (defun gopcaml-setup-bindings ()
   "Setup bindings for gopcaml-mode."
-  (message "setting up gopcaml-bindings")
   (setq-local end-of-defun-function #'gopcaml-end-defun)
   (setq-local beginning-of-defun-function #'gopcaml-beginning-defun)
   

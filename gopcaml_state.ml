@@ -4,6 +4,8 @@ open Generic_types
 
 let byte_of_position_safe pos = if Int.(pos = 0) then Position.of_int_exn pos else Position.of_byte_position pos
 
+let message ?at msg = Logging.message ?at msg
+
 module State = struct
 
   module Filetype = struct
@@ -166,12 +168,12 @@ module State = struct
           |> Option.bind ~f:(fun ext ->
               if List.mem ~equal:String.(=) implementation_extensions ext
               then begin
-                message "filetype is implementation";
+                message ~at:`verbose "filetype is implementation";
                 Some Filetype.Implementation
               end
               else if List.mem ~equal:String.(=) interface_extensions ext
               then begin
-                message "filetype is interface";
+                message ~at:`verbose "filetype is interface";
                 Some Filetype.Interface
               end
               else None
@@ -185,7 +187,7 @@ module State = struct
       let buffer_text =
         Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes  in
       let perform_parse () = 
-        message "Building parse tree - may take a while if the file is large...";
+        message ~at:`info "Building parse tree - may take a while if the file is large...";
         let start_time = Time.now () in
         let parse_tree =
           let map ~f = Either.map ~second:(fun x -> x) ~first:(fun x -> f x) in
@@ -198,11 +200,11 @@ module State = struct
         in
         match parse_tree with
         | Either.Second _e ->
-          message ("Could not build parse tree (syntax error)");
+          message ~at:`info ("Could not build parse tree (syntax error)");
           None
         | Either.First tree ->
           let end_time = Time.now () in
-          message (Printf.sprintf
+          message ~at:`info (Printf.sprintf
                      "Successfully built parse tree (%f ms)"
                      ((Time.diff end_time start_time) |> Time.Span.to_ms)
                   );
@@ -211,7 +213,7 @@ module State = struct
       if not @@ String.is_empty buffer_text then
         try perform_parse ()
         with
-          Parser.Error -> message (Printf.sprintf "parsing got error parse.error"); None
+          Parser.Error -> message ~at:`verbose (Printf.sprintf "parsing got error parse.error"); None
         | Syntaxerr.Error _ -> None
       else match file_type with
         | Interface -> Some (MkParseTree (Intf []))
@@ -279,12 +281,12 @@ module State = struct
 
     let abstract_rebuild_region f start_region end_region pre_edit_region post_edit_region  =
       (* first, attempt to parse the exact modified region *)
-      match parse_current_buffer ~start:start_region ~end_:end_region Filetype.Interface
+      match parse_current_buffer  ~start:start_region ~end_:end_region Filetype.Interface
       with
       | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range @ post_edit_region
       | None ->
         (* otherwise, try to reparse from the start to the end *)
-        match parse_current_buffer ~start:start_region Filetype.Interface with
+        match parse_current_buffer  ~start:start_region Filetype.Interface with
         | Some v -> let reparsed_range = f v in pre_edit_region @ reparsed_range
         | None ->
           (* otherwise, try to reparse from the start to the end *)
@@ -389,11 +391,13 @@ module State = struct
     let of_state (state: t)  =
       let (>>=) x f = Option.bind ~f x in
       let should_store = ref false in
-      (DirtyRegion.to_tree state.parse_tree state.file_type) >>= fun parse_tree -> 
+      (DirtyRegion.to_tree  state.parse_tree state.file_type) >>= fun parse_tree -> 
       if DirtyRegion.is_dirty state.parse_tree then should_store := true;
       if !should_store then
-        Some ({file_type=state.file_type; parse_tree},
-              Some ({file_type=state.file_type; parse_tree = (DirtyRegion.create parse_tree)}:t))
+        Some ({file_type=state.file_type;
+               parse_tree},
+              Some ({file_type=state.file_type;
+                     parse_tree = (DirtyRegion.create parse_tree)}:t))
       else
         Some ({file_type=state.file_type; parse_tree}, None)
 
@@ -415,9 +419,9 @@ module State = struct
          begin
            match parse_tree with
            | Some tree ->
-             Some ({file_type=file_type; parse_tree = (DirtyRegion.create tree)} :t), true
+             Some ({file_type; parse_tree = (DirtyRegion.create tree)} :t), true
            | None  ->
-             Some ({file_type=file_type; parse_tree = DirtyRegion.Dirty (tree,false)}:t), false
+             Some ({ file_type; parse_tree = DirtyRegion.Dirty (tree,false)}:t), false
          end
       )
 
@@ -433,36 +437,39 @@ module State = struct
          ~name:"gopcaml-state"
          Sexplib0.Sexp_conv.sexp_of_opaque)
 
-  let default = {
-    file_type = Interface;
-    parse_tree = DirtyRegion.Dirty (None,false);
-  }
+  (* let default = {
+   *   file_type = Interface;
+   *   parse_tree = DirtyRegion.Dirty (None,false);
+   * } *)
 
 end
 
 (** sets up the gopcaml-mode state - intended to be called by the startup hook of gopcaml mode*)
 let setup_gopcaml_state
-    ~state_var ~interface_extension_var ~implementation_extension_var =
+    ~state_var ~interface_extension_var
+    ~implementation_extension_var =
   let current_buffer = Current_buffer.get () in
   (* we've set these values in their definition, so it doesn't make sense for them to be non-present *)
   let interface_extensions =
     Customization.value interface_extension_var in
   let implementation_extensions =
     Customization.value implementation_extension_var in
+  message ~at:`verbose "Building initial state";
   let file_type =
-    let inferred = State.TreeBuilder.retrieve_current_file_type
+    let inferred =
+      State.TreeBuilder.retrieve_current_file_type
         ~implementation_extensions ~interface_extensions in
     match inferred with
     | Some vl -> vl
     | None ->
-      message "Could not infer the ocaml type (interface or \
+      message ~at:`info "Could not infer the ocaml type (interface or \
                implementation) of the current file - will attempt
                to proceed by defaulting to implementation.";
       State.Filetype.Implementation
   in
   let parse_tree = State.TreeBuilder.parse_current_buffer file_type in
   if Option.is_none parse_tree then
-    message "Could not build parse tree - please ensure that the \
+    message ~at:`info "Could not build parse tree - please ensure that the \
              buffer is syntactically correct and call \
              gopcaml-initialize to enable the full POWER of syntactic \
              editing.";
@@ -471,6 +478,7 @@ let setup_gopcaml_state
       parse_tree = match parse_tree with
           None -> DirtyRegion.Dirty (None, false)
         | Some tree -> DirtyRegion.create tree;
+
     } in
   Buffer_local.set state_var (Some state) current_buffer
 
@@ -851,7 +859,7 @@ let retrieve_enclosing_bounds ?current_buffer ~state_var point =
 
 let print_zipper =
   Option.map ~f:(fun zipper ->
-      Ecaml.message (Ast_zipper.describe_current_item zipper);
+      message ~at:`debug (Ast_zipper.describe_current_item zipper);
       zipper)
 
 (** retrieve a zipper expression at the current position *)
@@ -990,13 +998,11 @@ let check_zipper_toplevel_parent ?current_buffer ~zipper_var () =
 let move_zipper_left ?current_buffer ~zipper_var () =
   let current_buffer = match current_buffer with Some v -> v | None -> Current_buffer.get () in
   retrieve_zipper ~current_buffer ~zipper_var
-  |> print_zipper
   |> Option.bind ~f:Ast_zipper.go_left
   |> Option.map ~f:(fun zipper ->
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper left *)
@@ -1009,7 +1015,6 @@ let ensure_zipper_space ?current_buffer ~zipper_var (pre_column,pre_line) (post_
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper right *)
@@ -1021,7 +1026,6 @@ let move_zipper_right ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper down *)
@@ -1033,7 +1037,6 @@ let move_zipper_down ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper up *)
@@ -1045,7 +1048,6 @@ let move_zipper_up ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
-  |> print_zipper
   |>  abstract_zipper_to_bounds  
 
 (** attempts "update" the buffer using the zipper, returning the two regions to be swapped *)
@@ -1120,16 +1122,17 @@ let find_variables_region text =
     in 
     Ast_analysis.find_variables_exp exp
   with
-    Parser.Error -> message (Printf.sprintf "parsing got error parse.error"); []
+    Parser.Error -> message ~at:`verbose (Printf.sprintf "parsing got error parse.error"); []
   | Syntaxerr.Error _ -> []
+
 
 
 (** find the closest scope containing all variables used by the current expression  *)
 let find_extract_start_scope ?current_buffer ~state_var st_p ed_p text () =
-  let variables = find_variables_region text in 
   retrieve_gopcaml_state_immediate ?current_buffer ~state_var ()
   |> Option.bind ~f:(fun v -> find_enclosing_structure v st_p)
-  |> Option.bind ~f:(fun (State.MkParseItem it: State.parse_item) ->
+  |> Option.bind ~f:(fun ((State.MkParseItem it: State.parse_item)) ->
+      let variables = find_variables_region text in 
       match it with
       | State.ImplIt (_,si) ->
         let scopes = snd (Ast_analysis.find_scopes_si si) in
