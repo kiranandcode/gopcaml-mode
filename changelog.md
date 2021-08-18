@@ -5,6 +5,11 @@
     - Customise the Emacs variable `gopcaml-messaging-level` to change
       the level of messages that are output by GopCaml. Set it to
       `'none` to disable messages entirely.
+  - Fixed bug when starting zipper mode at the start of a file.
+    - Zipper mode selects the immediately prior byte position to avoid
+      inconsistencies when the cursor is just on the edge of an
+      expression, but when the cursor is at position 1, this causes an
+      error as 0 is not a valid point.
 
 - Version 0.0.2 - Unicode-lovers & Refactoring release
   - *Updated to work with OCaml 4.12.0*
