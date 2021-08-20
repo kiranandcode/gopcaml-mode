@@ -6,6 +6,8 @@
  (description
   "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs (uses Merlin's error tolerant parser).")
  (depends
+  (merlin (>= 2.5.0))
+  (ocp-indent (>= 1.0.0))
   (dune (>= 2.9.0))
   (dot-merlin-reader (>= 4.0))
   (yojson (>= 1.6.0))
