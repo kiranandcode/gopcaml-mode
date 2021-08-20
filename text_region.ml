@@ -1,5 +1,4 @@
 open Core
-open Generic_types
 
 module Diff = struct
   type t = int * int

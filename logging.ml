@@ -2,7 +2,7 @@ open Core
 open Ecaml
 
 module Level = struct
-  type t = [`debug | `verbose | `info | `none ] [@@deriving show, ord, enum, sexp, eq]
+  type t = [`debug | `verbose | `info | `none ] [@@deriving ord, enum, sexp, eq]
 
   module Enum : Ecaml.Value.Type.Enum with type t = t = struct
     type nonrec t = t

@@ -1,5 +1,5 @@
 open Core
-open Generic_types
+
 
 
 let rec unwrap_longident (li: Longident.t) = match li with
@@ -145,6 +145,7 @@ let rec find_variables_exp ({
   | Parsetree.Pexp_pack mexpr -> find_variables_mexp mexpr
   | Parsetree.Pexp_extension ext -> find_variables_ext ext
   | Parsetree.Pexp_unreachable -> []
+[@@warning "-8"]
 and find_variables_od ({ popen_expr; _ }: Parsetree.open_declaration) =
   find_variables_mexp popen_expr
 and  find_variables_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
@@ -165,6 +166,7 @@ and  find_variables_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
     find_variables_mexp mexp @ find_variables_mt mt
   | Parsetree.Pmod_unpack expr -> find_variables_exp expr
   | Parsetree.Pmod_extension ext -> find_variables_ext ext
+[@@warning "-8"]
 and find_variables_si ({ pstr_desc; _ }: Parsetree.structure_item) =
   match pstr_desc with
   | Parsetree.Pstr_eval (expr, _) -> find_variables_exp expr
@@ -534,6 +536,7 @@ let rec find_pattern_scopes_exp ({
   | Parsetree.Pexp_pack mexpr -> find_pattern_scopes_mexp mexpr
   | Parsetree.Pexp_extension ext -> find_pattern_scopes_ext ext
   | Parsetree.Pexp_unreachable -> []
+[@@warning "-8"]
 and find_pattern_scopes_pat ({ ppat_loc; _ }: Parsetree.pattern)  =
   [ppat_loc.loc_start.pos_cnum, ppat_loc.loc_end.pos_cnum]
 and find_pattern_scopes_od ({ popen_expr; _ }: Parsetree.open_declaration) =
@@ -557,6 +560,7 @@ and  find_pattern_scopes_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
     find_pattern_scopes_mexp mexp @ find_pattern_scopes_mt mt
   | Parsetree.Pmod_unpack expr -> find_pattern_scopes_exp expr
   | Parsetree.Pmod_extension ext -> find_pattern_scopes_ext ext
+[@@warning "-8"]
 and find_pattern_scopes_si ({ pstr_desc; _ }: Parsetree.structure_item) =
   match pstr_desc with
   | Parsetree.Pstr_eval (expr, _) -> find_pattern_scopes_exp expr
@@ -947,6 +951,7 @@ let rec find_scopes_exp ({
   | Parsetree.Pexp_pack mexpr -> find_scopes_mexp mexpr
   | Parsetree.Pexp_extension ext -> find_scopes_ext ext
   | Parsetree.Pexp_unreachable -> []
+[@@warning "-8"]
 and find_scopes_od ({ popen_expr; _ }: Parsetree.open_declaration) =
   find_scopes_mexp popen_expr
 and  find_scopes_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
@@ -981,6 +986,7 @@ and  find_scopes_mexp ({ pmod_desc; _ }: Parsetree.module_expr) =
     find_scopes_mexp mexp @ find_scopes_mt mt
   | Parsetree.Pmod_unpack expr -> find_scopes_exp expr
   | Parsetree.Pmod_extension ext -> find_scopes_ext ext
+[@@warning "-8"]
 and find_scopes_si ({ pstr_desc; _ }: Parsetree.structure_item) =
   match pstr_desc with
   | Parsetree.Pstr_eval (expr, _) -> [], find_scopes_exp expr

@@ -5,8 +5,6 @@ module Level : sig
   (** Type encoding the logging levels supported by the plugin *)
   type t = [ `debug |  `verbose | `info  | `none  ]
 
-  val show : t -> Ppx_deriving_runtime.string
-
   val ty : t Ecaml.Value.Type.t
 
   val custom_ty: Ecaml.Customization.Type.t

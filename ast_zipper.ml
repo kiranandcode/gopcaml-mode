@@ -1,6 +1,5 @@
 [@@@warning "-26"]
 open Core
-open Generic_types
 
 let split_last ls =
   let rec loop ls acc =
@@ -698,7 +697,9 @@ and unwrap_expr ({ pexp_desc; _ } as expr: Parsetree.expression) =
       | Sequence (Some (_,Seq), [], h, t)  -> h, t
       | Sequence (Some (_,LetOp), [], h, t)  -> h, t
       | Sequence (Some (_,Extension), [], h, t)  -> h, t
-      | _ -> Expression expr,[] in
+      | res ->
+        Logging.message ~at:`debug ("last expression in let binding was: " ^ (to_string res));
+        Expression expr,[] in
     let bounds = Some (range, LetBinding) in
     begin
       match vbs with
@@ -1487,10 +1488,7 @@ let at_start current point =
 
 (** moves the location to the nearest expression enclosing or around it   *)
 let rec move_zipper_to_point point line forward loc =
-  (* if not forward then Ecaml.message "moving backward"; *)
   let distance region =
-    (* let region_line = Text_region.line_start region in 
-     * let region_column = Text_region.column_start region in  *)
     match Text_region.distance_line ~forward region ~point ~line with
     | None,None -> Int.max_value, Int.max_value
     | None, Some line -> (Int.max_value, line)  

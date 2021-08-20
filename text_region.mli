@@ -1,4 +1,3 @@
-open Generic_types
 
 module Diff : sig
   type t

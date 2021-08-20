@@ -1,6 +1,5 @@
 open Core
 open Ecaml
-open Generic_types
 
 let byte_of_position_safe pos = if Int.(pos = 0) then Position.of_int_exn pos else Position.of_byte_position pos
 
@@ -125,7 +124,7 @@ module State = struct
     (** builds the abstract tree for the current buffer buffer  *)
     let build_abstract_tree f g h ?current_buffer value =
       let current_buffer = unwrap_current_buffer current_buffer in
-      let lexbuf = Lexing.from_string ~with_positions:true value in
+      let lexbuf = (* Lexing.from_string ~with_positions:true *) value in
       let items =
         f lexbuf
         |> List.map ~f:(fun item ->
@@ -153,8 +152,7 @@ module State = struct
 
 
     let build_implementation_tree =
-      build_abstract_tree
-        Generic_parser.implementation
+      build_abstract_tree Generic_parser.implementation 
         (fun iterator item -> iterator.structure_item iterator item)
         (fun x -> Impl x)
 
@@ -218,8 +216,8 @@ module State = struct
       if not @@ String.is_empty buffer_text then
         try perform_parse ()
         with
-          Parser.Error -> message ~at:`verbose (Printf.sprintf "parsing got error parse.error"); None
-        | Syntaxerr.Error _ -> None
+          Syntaxerr.Error _ -> None
+        | (* Parser.Error *) _ -> message ~at:`verbose (Printf.sprintf "parsing got error parse.error"); None
       else match file_type with
         | Interface -> Some (MkParseTree (Intf []))
         | Implementation -> Some (MkParseTree (Impl []))
@@ -1008,6 +1006,7 @@ let move_zipper_left ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper left *)
@@ -1020,6 +1019,7 @@ let ensure_zipper_space ?current_buffer ~zipper_var (pre_column,pre_line) (post_
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper right *)
@@ -1031,6 +1031,7 @@ let move_zipper_right ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper down *)
@@ -1042,6 +1043,7 @@ let move_zipper_down ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds
 
 (** attempts to move the current zipper up *)
@@ -1053,6 +1055,7 @@ let move_zipper_up ?current_buffer ~zipper_var () =
       Buffer_local.set zipper_var (Some zipper) current_buffer;
       zipper
     )
+  |> print_zipper
   |>  abstract_zipper_to_bounds  
 
 (** attempts "update" the buffer using the zipper, returning the two regions to be swapped *)
@@ -1122,13 +1125,13 @@ let zipper_move_down ?current_buffer ~zipper_var ()  =
 let find_variables_region text =
   try
     let exp =
-      let lexbuf = Lexing.from_string ~with_positions:true text in
+      let lexbuf = (* Lexing.from_string ~with_positions:true *) text in
       Generic_parser.expression lexbuf
     in 
     Ast_analysis.find_variables_exp exp
   with
-    Parser.Error -> message ~at:`verbose (Printf.sprintf "parsing got error parse.error"); []
-  | Syntaxerr.Error _ -> []
+    Syntaxerr.Error _ -> []
+  | _ -> message ~at:`verbose (Printf.sprintf "parsing got error parse.error"); []
 
 
 

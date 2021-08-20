@@ -1,15 +1,24 @@
-(lang dune 1.10)
+(lang dune 1.11)
 (package
  (name gopcaml-mode)
- (synopsis "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs")
-  (description "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs.")
+ (synopsis
+  "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs")
+ (description
+  "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs.")
  (depends
-   (ocaml (>= 4.08.0))
-   (core (>= 0.13.0))
-   (ppx_deriving (>= 4.4))
-   (ocaml-migrate-parsetree (>= 2.1.0))
-   (ecaml (>= 0.13.0))))
-(version 0.0.2)
+  (dune (>= 2.9.0))
+  (dot-merlin-reader (>= 4.0))
+  (yojson (>= 1.6.0))
+  (csexp (>= 1.2.3))
+  (result (>= 1.5))
+  (ppx_sexp_conv (>= v0.14.3))
+  (ppx_let (>= v0.14.0))
+  (ppx_here (>= v0.14.0))
+  (ocaml (>= 4.12.0))
+  (core (>= 0.13.0))
+  (ppx_deriving (>= 4.4))
+  (ecaml (>= 0.13.0))))
+(version 0.0.4)
 (name gopcaml-mode)
 (generate_opam_files true)
 (license GPL-3.0-only)
@@ -18,4 +27,3 @@
 (homepage https://gitlab.com/gopiandcode/gopcaml-mode)
 (authors "Kiran Gopinathan")
 (maintainers "kirang@comp.nus.edu.sg")
-

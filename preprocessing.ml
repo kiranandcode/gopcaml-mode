@@ -1,5 +1,6 @@
 open Core
 
+
 let remove_shebangs txt =
    Option.some_if (String.is_prefix ~prefix:"#" txt) txt
    |> Option.bind ~f:(fun txt -> String.index txt '\n')
