@@ -1,10 +1,10 @@
 (lang dune 1.11)
 (package
- (name gopcaml-mode)
+ (name gopcaml-mode-merlin)
  (synopsis
-  "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs")
+  "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs (uses Merlin parser)")
  (description
-  "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs.")
+  "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs (uses Merlin's error tolerant parser).")
  (depends
   (dune (>= 2.9.0))
   (dot-merlin-reader (>= 4.0))
@@ -19,7 +19,7 @@
   (ppx_deriving (>= 4.4))
   (ecaml (>= 0.13.0))))
 (version 0.0.4)
-(name gopcaml-mode)
+(name gopcaml-mode-merlin)
 (generate_opam_files true)
 (license GPL-3.0-only)
 (source (uri git+https://gitlab.com/gopiandcode/gopcaml-mode.git))

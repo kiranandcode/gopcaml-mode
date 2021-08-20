@@ -2,9 +2,9 @@
 opam-version: "2.0"
 version: "0.0.4"
 synopsis:
-  "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs"
+  "Ultimate Ocaml editing plugin, providing advanced structural editing, movement and analysis in Emacs (uses Merlin parser)"
 description:
-  "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs."
+  "Gopcaml-mode is a plugin for emacs for editing OCaml code. It aims to extend existing Emacs editing experience to closer match the features in modern IDEs (uses Merlin's error tolerant parser)."
 maintainer: ["kirang@comp.nus.edu.sg"]
 authors: ["Kiran Gopinathan"]
 license: "GPL-3.0-only"
