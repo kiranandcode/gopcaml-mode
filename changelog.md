@@ -1,5 +1,9 @@
 # Gopcaml Changelog
 
+- Version 0.0.4 - Wizardry Release
+  - Switches OCaml parser to use merlin's parser, thereby allowing for
+    robustness to invalid syntax.
+
 - Version 0.0.3 - Polishing release
   - *Added support for customisable verbosity*
     - Customise the Emacs variable `gopcaml-messaging-level` to change

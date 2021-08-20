@@ -1,6 +1,6 @@
-# Gopcaml Ocaml Emacs Major Mode
+# Gopcaml Ocaml Emacs Major Mode (Merlin edition)
 
-The ultimate ocaml editing mode.
+The ultimate ocaml editing mode (uses Merlin for code navigation).
 
 ## Features
 - AST-based code navigation - `C-M-n, C-M-p, C-M-u, C-M-d, C-M-f, C-M-b`
