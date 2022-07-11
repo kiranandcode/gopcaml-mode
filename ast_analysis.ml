@@ -373,9 +373,10 @@ and find_variables_pat ({ ppat_desc; _ }: Parsetree.pattern) : string list =
   | Parsetree.Ppat_interval (_, _) -> []
   | Parsetree.Ppat_tuple ls ->
     List.concat_map ls ~f:(find_variables_pat)
-  | Parsetree.Ppat_variant (_, popt)
-  | Parsetree.Ppat_construct (_, popt) ->
+  | Parsetree.Ppat_variant (_, popt) ->
     (Option.map ~f:(find_variables_pat) popt |> Option.value ~default:[])
+  | Parsetree.Ppat_construct (_, popt) ->
+    (Option.map ~f:(fun (_, pat) -> find_variables_pat pat) popt |> Option.value ~default:[])
   | Parsetree.Ppat_array fields ->
     List.concat_map ~f:(find_variables_pat) fields
   | Parsetree.Ppat_record (fields, _) ->
@@ -1321,7 +1322,7 @@ let find_excluded_scopes (scopes: scope list) (startp,endp)  =
 let find_valid_matches (matches: _ list) (patterns: _ list) =
   let contained_by  (s2,e2) (s1,e1)  =
     (s1 <= s2 && e2 <= e1) in
-  let pattern_contains bound = List.find patterns ~f:(contained_by bound) |> Option.is_empty in
+  let pattern_contains bound = List.find patterns ~f:(contained_by bound) |> Option.is_none in
   List.filter ~f:pattern_contains matches
 
 

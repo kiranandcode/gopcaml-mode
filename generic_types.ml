@@ -1,5 +1,5 @@
-module Parsetree = Migrate_parsetree.Ast_412.Parsetree
-module Asttypes = Migrate_parsetree.Ast_412.Asttypes
+module Parsetree = Migrate_parsetree.Ast_414.Parsetree
+module Asttypes = Migrate_parsetree.Ast_414.Asttypes
 (* Pretty much all of this file has been copied from the OCaml repository *)
 (* Corresponding licenses for each file included at the start of each module *)
 module Docstrings = struct
@@ -48,8 +48,21 @@ let docstrings : docstring list ref = ref []
 
 (* Warn for unused and ambiguous docstrings *)
 
-let warn_bad_docstrings () = ()
-
+let warn_bad_docstrings () =
+  if Warnings.is_active (Warnings.Unexpected_docstring true) then begin
+    List.iter
+      (fun ds ->
+         match ds.ds_attached with
+         | Info -> ()
+         | Unattached ->
+           prerr_warning ds.ds_loc (Warnings.Unexpected_docstring true)
+         | Docs ->
+             match ds.ds_associated with
+             | Zero | One -> ()
+             | Many ->
+               prerr_warning ds.ds_loc (Warnings.Unexpected_docstring false))
+      (List.rev !docstrings)
+end
 
 (* Docstring constructors and destructors *)
 
@@ -433,7 +446,6 @@ module Ast_helper = struct
 (*                                                                        *)
 (**************************************************************************)
 (** Helpers to produce Parsetree fragments *)
-
 open Asttypes
 open Parsetree
 open Docstrings
@@ -453,6 +465,7 @@ let with_default_loc l f =
 
 module Const = struct
   let integer ?suffix i = Pconst_integer (i, suffix)
+  let int ?suffix i = integer ?suffix (Int.to_string i)
   let int32 ?(suffix='l') i = integer ~suffix (Int32.to_string i)
   let int64 ?(suffix='L') i = integer ~suffix (Int64.to_string i)
   let nativeint ?(suffix='n') i = integer ~suffix (Nativeint.to_string i)
@@ -689,6 +702,7 @@ module Sig = struct
   let mod_subst ?loc a = mk ?loc (Psig_modsubst a)
   let rec_module ?loc a = mk ?loc (Psig_recmodule a)
   let modtype ?loc a = mk ?loc (Psig_modtype a)
+  let modtype_subst ?loc a = mk ?loc (Psig_modtypesubst a)
   let open_ ?loc a = mk ?loc (Psig_open a)
   let include_ ?loc a = mk ?loc (Psig_include a)
   let class_ ?loc a = mk ?loc (Psig_class a)
@@ -946,9 +960,10 @@ module Type = struct
     }
 
   let constructor ?(loc = !default_loc) ?(attrs = []) ?(info = empty_info)
-        ?(args = Pcstr_tuple []) ?res name =
+        ?(vars = []) ?(args = Pcstr_tuple []) ?res name =
     {
      pcd_name = name;
+     pcd_vars = vars;
      pcd_args = args;
      pcd_res = res;
      pcd_loc = loc;
@@ -998,10 +1013,10 @@ module Te = struct
     }
 
   let decl ?(loc = !default_loc) ?(attrs = []) ?(docs = empty_docs)
-             ?(info = empty_info) ?(args = Pcstr_tuple []) ?res name =
+         ?(info = empty_info) ?(vars = []) ?(args = Pcstr_tuple []) ?res name =
     {
      pext_name = name;
-     pext_kind = Pext_decl(args, res);
+     pext_kind = Pext_decl(vars, args, res);
      pext_loc = loc;
      pext_attributes = add_docs_attrs docs (add_info_attrs info attrs);
     }
@@ -1061,6 +1076,28 @@ end
 end
 
 module Ast_mapper = struct
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*                         Alain Frisch, LexiFi                           *)
+(*                                                                        *)
+(*   Copyright 2012 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
+
+(* A generic Parsetree mapping class *)
+
+(*
+[@@@ocaml.warning "+9"]
+  (* Ensure that record patterns don't miss any field. *)
+*)
+
 open Parsetree
 open Ast_helper
 open Location
@@ -1247,8 +1284,10 @@ module T = struct
       (sub.extension_constructor sub ptyexn_constructor)
 
   let map_extension_constructor_kind sub = function
-      Pext_decl(ctl, cto) ->
-        Pext_decl(map_constructor_arguments sub ctl, map_opt (sub.typ sub) cto)
+      Pext_decl(vars, ctl, cto) ->
+        Pext_decl(List.map (map_loc sub) vars,
+                  map_constructor_arguments sub ctl,
+                  map_opt (sub.typ sub) cto)
     | Pext_rebind li ->
         Pext_rebind (map_loc sub li)
 
@@ -1334,10 +1373,14 @@ module MT = struct
         Pwith_type (map_loc sub lid, sub.type_declaration sub d)
     | Pwith_module (lid, lid2) ->
         Pwith_module (map_loc sub lid, map_loc sub lid2)
+    | Pwith_modtype (lid, mty) ->
+        Pwith_modtype (map_loc sub lid, sub.module_type sub mty)
     | Pwith_typesubst (lid, d) ->
         Pwith_typesubst (map_loc sub lid, sub.type_declaration sub d)
     | Pwith_modsubst (s, lid) ->
         Pwith_modsubst (map_loc sub s, map_loc sub lid)
+    | Pwith_modtypesubst (lid, mty) ->
+        Pwith_modtypesubst (map_loc sub lid, sub.module_type sub mty)
 
   let map_signature_item sub {psig_desc = desc; psig_loc = loc} =
     let open Sig in
@@ -1355,6 +1398,8 @@ module MT = struct
     | Psig_recmodule l ->
         rec_module ~loc (List.map (sub.module_declaration sub) l)
     | Psig_modtype x -> modtype ~loc (sub.module_type_declaration sub x)
+    | Psig_modtypesubst x ->
+        modtype_subst ~loc (sub.module_type_declaration sub x)
     | Psig_open x -> open_ ~loc (sub.open_description sub x)
     | Psig_include x -> include_ ~loc (sub.include_description sub x)
     | Psig_class l -> class_ ~loc (List.map (sub.class_description sub) l)
@@ -1519,10 +1564,14 @@ module P = struct
     | Ppat_var s -> var ~loc ~attrs (map_loc sub s)
     | Ppat_alias (p, s) -> alias ~loc ~attrs (sub.pat sub p) (map_loc sub s)
     | Ppat_constant c -> constant ~loc ~attrs (sub.constant sub c)
-    | Ppat_interval (c1, c2) -> interval ~loc ~attrs c1 c2
+    | Ppat_interval (c1, c2) ->
+        interval ~loc ~attrs (sub.constant sub c1) (sub.constant sub c2)
     | Ppat_tuple pl -> tuple ~loc ~attrs (List.map (sub.pat sub) pl)
     | Ppat_construct (l, p) ->
-        construct ~loc ~attrs (map_loc sub l) (map_opt (sub.pat sub) p)
+        construct ~loc ~attrs (map_loc sub l)
+          (map_opt
+             (fun (vl, p) -> List.map (map_loc sub) vl, sub.pat sub p)
+             p)
     | Ppat_variant (l, p) -> variant ~loc ~attrs l (map_opt (sub.pat sub) p)
     | Ppat_record (lpl, cf) ->
         record ~loc ~attrs
@@ -1730,9 +1779,11 @@ let default_mapper =
 
 
     constructor_declaration =
-      (fun this {pcd_name; pcd_args; pcd_res; pcd_loc; pcd_attributes} ->
+      (fun this {pcd_name; pcd_vars; pcd_args;
+                 pcd_res; pcd_loc; pcd_attributes} ->
         Type.constructor
           (map_loc this pcd_name)
+          ~vars:(List.map (map_loc this) pcd_vars)
           ~args:(T.map_constructor_arguments this pcd_args)
           ?res:(map_opt (this.typ this) pcd_res)
           ~loc:(this.location this pcd_loc)
@@ -1800,7 +1851,7 @@ let attribute_of_warning loc s =
     {loc; txt = "ocaml.ppwarning" }
     (PStr ([Str.eval ~loc (Exp.constant (Pconst_string (s, loc, None)))]))
 
-let cookies : Parsetree.expression String.Map.t ref = ref String.Map.empty
+let cookies = ref String.Map.empty
 
 let get_cookie k =
   try Some (String.Map.find k !cookies)
@@ -1953,7 +2004,7 @@ module PpxContext = struct
       | "unsafe_string" ->
           Clflags.unsafe_string := get_bool payload
       | "cookies" ->
-          let l: (string * Parsetree.expression) list = get_list (get_pair get_string (fun x -> x)) payload in
+          let l = get_list (get_pair get_string (fun x -> x)) payload in
           cookies :=
             List.fold_left
               (fun s (k, v) -> String.Map.add k v s) String.Map.empty
@@ -2105,12 +2156,34 @@ let run_main mapper =
     prerr_endline (Printexc.to_string exn);
     exit 2
 
-let register_function : (string -> (string list -> mapper) -> unit) ref =
-     ref (fun _name f -> run_main f)
-let register name f = !register_function name f
+(* let register_function = ref (fun _name f -> run_main f)
+ * let register name f = !register_function name f *)
 end
 
 module Ast_iterator = struct
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*                      Nicolas Ojeda Bar, LexiFi                         *)
+(*                                                                        *)
+(*   Copyright 2012 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
+
+(* A generic Parsetree mapping class *)
+
+(*
+[@@@ocaml.warning "+9"]
+  (* Ensure that record patterns don't miss any field. *)
+*)
+
+
 open Parsetree
 open Location
 
@@ -2200,7 +2273,7 @@ module T = struct
     | Otag (_, t) -> sub.typ sub t
     | Oinherit t -> sub.typ sub t
 
-  let iter sub {ptyp_desc = desc; ptyp_loc = loc; ptyp_attributes = attrs; _} =
+  let iter sub {ptyp_desc = desc; ptyp_loc = loc; ptyp_attributes = attrs} =
     sub.location sub loc;
     sub.attributes sub attrs;
     match desc with
@@ -2272,8 +2345,10 @@ module T = struct
     sub.attributes sub ptyexn_attributes
 
   let iter_extension_constructor_kind sub = function
-      Pext_decl(ctl, cto) ->
-        iter_constructor_arguments sub ctl; iter_opt (sub.typ sub) cto
+      Pext_decl(vars, ctl, cto) ->
+        List.iter (iter_loc sub) vars;
+        iter_constructor_arguments sub ctl;
+        iter_opt (sub.typ sub) cto
     | Pext_rebind li ->
         iter_loc sub li
 
@@ -2353,10 +2428,14 @@ module MT = struct
         iter_loc sub lid; sub.type_declaration sub d
     | Pwith_module (lid, lid2) ->
         iter_loc sub lid; iter_loc sub lid2
+    | Pwith_modtype (lid, mty) ->
+        iter_loc sub lid; sub.module_type sub mty
     | Pwith_typesubst (lid, d) ->
         iter_loc sub lid; sub.type_declaration sub d
     | Pwith_modsubst (s, lid) ->
         iter_loc sub s; iter_loc sub lid
+    | Pwith_modtypesubst (lid, mty) ->
+        iter_loc sub lid; sub.module_type sub mty
 
   let iter_signature_item sub {psig_desc = desc; psig_loc = loc} =
     sub.location sub loc;
@@ -2371,7 +2450,7 @@ module MT = struct
     | Psig_modsubst x -> sub.module_substitution sub x
     | Psig_recmodule l ->
         List.iter (sub.module_declaration sub) l
-    | Psig_modtype x -> sub.module_type_declaration sub x
+    | Psig_modtype x | Psig_modtypesubst x -> sub.module_type_declaration sub x
     | Psig_open x -> sub.open_description sub x
     | Psig_include x -> sub.include_description sub x
     | Psig_class l -> List.iter (sub.class_description sub) l
@@ -2429,7 +2508,7 @@ end
 module E = struct
   (* Value expressions for the core language *)
 
-  let iter sub {pexp_loc = loc; pexp_desc = desc; pexp_attributes = attrs; _} =
+  let iter sub {pexp_loc = loc; pexp_desc = desc; pexp_attributes = attrs} =
     sub.location sub loc;
     sub.attributes sub attrs;
     match desc with
@@ -2516,7 +2595,7 @@ end
 module P = struct
   (* Patterns *)
 
-  let iter sub {ppat_desc = desc; ppat_loc = loc; ppat_attributes = attrs; _} =
+  let iter sub {ppat_desc = desc; ppat_loc = loc; ppat_attributes = attrs} =
     sub.location sub loc;
     sub.attributes sub attrs;
     match desc with
@@ -2527,7 +2606,12 @@ module P = struct
     | Ppat_interval _ -> ()
     | Ppat_tuple pl -> List.iter (sub.pat sub) pl
     | Ppat_construct (l, p) ->
-        iter_loc sub l; iter_opt (sub.pat sub) p
+        iter_loc sub l;
+        iter_opt
+          (fun (vl,p) ->
+            List.iter (iter_loc sub) vl;
+            sub.pat sub p)
+          p
     | Ppat_variant (_l, p) -> iter_opt (sub.pat sub) p
     | Ppat_record (lpl, _cf) ->
         List.iter (iter_tuple (iter_loc sub) (sub.pat sub)) lpl
@@ -2720,8 +2804,10 @@ let default_iterator =
 
 
     constructor_declaration =
-      (fun this {pcd_name; pcd_args; pcd_res; pcd_loc; pcd_attributes} ->
+      (fun this {pcd_name; pcd_vars; pcd_args;
+                 pcd_res; pcd_loc; pcd_attributes} ->
          iter_loc this pcd_name;
+         List.iter (iter_loc this) pcd_vars;
          T.iter_constructor_arguments this pcd_args;
          iter_opt (this.typ this) pcd_res;
          this.location this pcd_loc;

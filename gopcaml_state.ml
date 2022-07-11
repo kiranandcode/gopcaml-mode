@@ -16,7 +16,7 @@ module State = struct
     (** records whether the current file is an interface or implementation *)
     type s = Interface | Implementation [@@deriving sexp]
 
-    module Enum : Ecaml.Value.Type.Enum with type t = s = struct
+    module Enum : Enum.S with type t = s = struct
       type t = s
       let all = [Interface; Implementation]
       let sexp_of_t = sexp_of_s
@@ -45,7 +45,7 @@ module State = struct
     type s = Forward | Backward [@@deriving sexp]
 
 
-    module Enum : Ecaml.Value.Type.Enum with type t = s = struct
+    module Enum : Enum.S with type t = s = struct
       type t = s
       let all = [Forward; Backward]
       let sexp_of_t = sexp_of_s
@@ -191,7 +191,7 @@ module State = struct
         Current_buffer.contents ?start ?end_ () |> Text.to_utf8_bytes |> Preprocessing.preprocess  in
       let perform_parse () = 
         message ~at:`info "Building parse tree - may take a while if the file is large...";
-        let start_time = Time.now () in
+        let start_time = Time_float.now () in
         let parse_tree =
           let map ~f = Either.map ~second:(fun x -> x) ~first:(fun x -> f x) in
           let open Filetype in
@@ -206,10 +206,10 @@ module State = struct
           message ~at:`info ("Could not build parse tree (syntax error)");
           None
         | Either.First tree ->
-          let end_time = Time.now () in
+          let end_time = Time_float.now () in
           message ~at:`info (Printf.sprintf
                                "Successfully built parse tree (%f ms)"
-                               ((Time.diff end_time start_time) |> Time.Span.to_ms)
+                               ((Time_float.diff end_time start_time) |> Time_float.Span.to_ms)
                             );
           Some tree
       in

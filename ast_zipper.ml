@@ -468,6 +468,18 @@ and unwrap_with_constraint (c: Parsetree.with_constraint) =
     in
     let bounds = Some (range, WithConstraint) in
     Sequence (bounds, [], loc1, [loc2])
+  | Parsetree.Pwith_modtypesubst (loc, type_decl)
+  | Parsetree.Pwith_modtype (loc, type_decl) ->
+    let loc = unwrap_loc loc in
+    let decl = Option.to_list (unwrap_module_type type_decl) in
+    let range =
+      let sequence = Sequence (None, [], loc, decl) in
+      t_to_bounds sequence
+    in
+    let bounds = Some (range, WithConstraint) in
+    Sequence (bounds, [], loc, decl)
+
+
 and unwrap_module_expr 
     ({ pmod_desc;
        (* pmod_loc=location; *)
@@ -635,7 +647,7 @@ and unwrap_pattern ({ppat_desc; _} as pat : Parsetree.pattern) : t =
     let cons = unwrap_loc cons in
     begin match pat with
       | None -> cons
-      | Some pat -> Sequence (Some (range, Pattern), [], cons, [Pattern pat])
+      | Some (_, pat) -> Sequence (Some (range, Pattern), [], cons, [Pattern pat])
     end
   (* C, C P, C (P1, ..., Pn) *)
   | Parsetree.Ppat_variant (_, pat) ->
@@ -1189,7 +1201,7 @@ and unwrap_extension_constructor ({ pext_name=name;
                                     _ }: Parsetree.extension_constructor) =
   let name = unwrap_loc name in
   let kind = match kind with
-    | Parsetree.Pext_decl (cargs, cty) ->
+    | Parsetree.Pext_decl (_, cargs, cty) ->
       unwrap_constructor_arguments cargs
       @ (Option.map ~f:(fun cty -> CoreType cty ) cty |> Option.to_list)
     | Parsetree.Pext_rebind name -> [unwrap_loc name] in
