@@ -2,4 +2,4 @@
   (name generic_parser)
   (wrapped false)
   (flags (:standard -w -9))
-  (libraries merlin.merlin_kernel))
+  (libraries merlin-lib.kernel merlin-lib.ocaml_parsing))

@@ -1,4 +1,5 @@
 open Core
+open Ocaml_parsing
 
 (* returns total bounds of the current item *)
 let bounds_iterator () =

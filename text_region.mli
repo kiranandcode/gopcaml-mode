@@ -1,3 +1,5 @@
+open Ocaml_parsing
+
 
 module Diff : sig
   type t

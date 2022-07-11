@@ -1,3 +1,6 @@
+open Merlin_kernel
+open Ocaml_preprocess
+open Ocaml_utils
 
 let parse ty str =
   let str = Msource.make str in
