@@ -1,5 +1,6 @@
 # Gopcaml Changelog
-
+- Version 0.0.6 - Like the Phoenix Release
+  - *Updated to work with OCaml 4.13.0 and OCaml 4.14.0*
 - Version 0.0.3 - Polishing release
   - *Added support for customisable verbosity*
     - Customise the Emacs variable `gopcaml-messaging-level` to change
